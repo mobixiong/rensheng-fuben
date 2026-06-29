@@ -4,22 +4,22 @@
 
 项目不绑定具体模型服务，不内置商业生图能力，只提供可替换的接口层。
 
-## Features
+## 功能
 
 - 口播文案生成：OpenAI-compatible API
 - 文案生成：可选 [Sophomoresty/gemini-web2api](https://github.com/Sophomoresty/gemini-web2api)
 - 图片生成：OpenAI-compatible Images API
 - 可编辑文案提示词：默认读取 `prompt.txt`
 - 可编辑图片提示词：默认读取 `prompts/image_style.md`
-- 可编辑分镜 JSON：默认示例读取 `examples/buffet_story.json`
-- 分镜 JSON 生成：默认读取 `prompts/story_shots.md`
-- 可编辑 Story JSON
+- 口播转分镜：默认读取 `prompts/copy_to_story.md`
+- 高级分镜数据：默认示例读取 `examples/buffet_story.json`
+- 仅用主题生成分镜：默认读取 `prompts/story_shots.md`
 - 图片批量生成和单张重抽
 - Edge TTS 配音
 - SRT/ASS 字幕
 - FFmpeg 合成竖屏 MP4
 
-## Quick Start
+## 快速开始
 
 ```bash
 pip install -r requirements.txt
@@ -32,13 +32,13 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 7860
 http://127.0.0.1:7860
 ```
 
-## Requirements
+## 环境要求
 
 - Python 3.10+
 - FFmpeg / FFprobe in PATH
 - Python packages in `requirements.txt`
 
-## Text API
+## 文案接口
 
 普通 OpenAI-compatible 文本接口：
 
@@ -56,14 +56,20 @@ Authorization: Bearer {LLM_API_KEY}
 
 也可以复制 `.env.example` 为 `.env` 后填写本地配置。后端启动时会自动读取项目根目录下的 `.env`。
 
-## Prompts
+## 提示词
 
-7860 页面里可以直接编辑两类提示词：
+7860 页面里的主流程是：
 
-- 文案提示词：用于“生成口播”，默认来自 `prompt.txt`。
+```text
+主题 + 文案提示词 -> 口播文案 -> 自动拆分镜 -> 图片提示词生成分镜图 -> 合成视频
+```
+
+页面里可以直接编辑两类提示词：
+
+- 文案提示词：用于“生成口播并拆分镜”，默认来自 `prompt.txt`。
 - 图片提示词：用于“批量生成”和“重抽选中图片”，默认来自 `prompts/image_style.md`。
 
-“生成分镜 JSON”仍然使用 `prompts/story_shots.md`，因为图片和视频流程依赖结构化 Story JSON。
+高级区里的“分镜数据”是内部中间数据，用于承接图片和视频流程。通常不需要手写；如果要重新拆分已有口播，可以点“由口播拆分镜”。
 
 ## Gemini Web2API
 
@@ -111,7 +117,7 @@ gemini-auto
 gemini-flash-lite
 ```
 
-## Image API
+## 图片接口
 
 图片接口目前只保留 OpenAI-compatible Images：
 
@@ -131,11 +137,13 @@ Authorization: Bearer {IMAGE_API_KEY}
 {
   "image_path": "D:\\path\\to\\shot_01.png",
   "image_url": "/workspace/project_id/images/shot_01.png",
-  "resolved_image_prompt": "final prompt sent to image model"
+  "resolved_image_prompt": "实际发送给图片模型的提示词"
 }
 ```
 
-## Story JSON Schema
+## 分镜数据格式
+
+分镜数据是工作台内部承接生图和视频合成的结构。普通使用时不需要手写；页面会在“生成口播并拆分镜”后自动生成。
 
 ```json
 {
@@ -147,10 +155,10 @@ Authorization: Bearer {IMAGE_API_KEY}
       "voiceover": "今天体验的人生副本是：自助餐成瘾者回本哥的人生。",
       "visual": "他站在自助餐门口，像要参加一场命运审判。",
       "punch": "副本开启",
-      "image_prompt": "English image prompt",
-      "video_prompt": "English motion prompt",
-      "image_path": "optional local image path",
-      "image_url": "optional browser-accessible image URL"
+      "image_prompt": "中文生图提示词",
+      "video_prompt": "中文镜头运动提示词",
+      "image_path": "可选的本地图片路径",
+      "image_url": "可选的浏览器访问地址"
     }
   ]
 }
@@ -163,6 +171,7 @@ GET  /api/example
 GET  /api/prompt/default
 GET  /api/prompt/image
 POST /api/text/generate-copy
+POST /api/text/copy-to-story
 POST /api/text/generate
 POST /api/llm/generate
 POST /api/image/generate-story
@@ -176,10 +185,10 @@ POST /api/render
 workspace/{project_id}/final.mp4
 ```
 
-## Open Source Notes
+## 开源注意事项
 
 不要提交 `.env`、API Key、本地生成的 `workspace/`、音频、字幕、视频或任何私有凭据。
 
-## License
+## 许可证
 
 MIT

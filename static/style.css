@@ -338,8 +338,55 @@ textarea:focus {
 }
 
 .story-editor {
-  height: 520px;
+  height: 460px;
   min-height: 420px;
+  margin: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.advanced-story {
+  margin: 24px;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+}
+
+.advanced-story summary {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.24;
+  letter-spacing: -0.374px;
+  list-style: none;
+}
+
+.advanced-story summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-story summary::after {
+  content: "+";
+  width: 24px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.advanced-story[open] summary::after {
+  content: "-";
+}
+
+.advanced-story #jsonMeta {
+  margin-left: auto;
+  margin-right: 18px;
+  font-weight: 400;
 }
 
 .copy-grid {

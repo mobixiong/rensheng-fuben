@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images
-from .llm_adapter import LLMConfig, LLMError, generate_story, generate_text
+from .llm_adapter import LLMConfig, LLMError, generate_story, generate_story_from_copy, generate_text
 from .pipeline import ROOT, WORKSPACE, RenderError, render_story
 
 
@@ -31,6 +31,10 @@ class GenerateRequest(BaseModel):
     model: str = ""
     temperature: float = 0.8
     system_prompt: str | None = None
+
+
+class CopyToStoryRequest(GenerateRequest):
+    copy_text: str = Field(min_length=1)
 
 
 class ImageGenerateRequest(BaseModel):
@@ -97,6 +101,14 @@ def text_generate_copy(req: GenerateRequest) -> dict[str, str]:
     try:
         text = generate_text(req.topic, LLMConfig.from_payload(req.model_dump()), req.system_prompt)
         return {"topic": req.topic, "text": text}
+    except LLMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/text/copy-to-story")
+def text_copy_to_story(req: CopyToStoryRequest) -> dict[str, Any]:
+    try:
+        return generate_story_from_copy(req.topic, req.copy_text, LLMConfig.from_payload(req.model_dump()), req.system_prompt)
     except LLMError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

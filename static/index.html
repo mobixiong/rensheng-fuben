@@ -11,11 +11,11 @@
       <nav class="global-nav">
         <div class="brand-mark">人生副本</div>
         <div class="global-nav-links">
-          <span>Text</span>
-          <span>Image</span>
-          <span>Video</span>
+          <span>文案</span>
+          <span>图片</span>
+          <span>视频</span>
         </div>
-        <div class="status-pill" id="status">Ready</div>
+        <div class="status-pill" id="status">就绪</div>
       </nav>
 
       <header class="sub-nav">
@@ -33,7 +33,7 @@
       <main class="workspace">
         <aside class="config-rail">
           <section class="config-section">
-            <div class="section-kicker">Project</div>
+            <div class="section-kicker">项目</div>
             <label>
               主题
               <input id="topic" value="自助餐成瘾者回本哥的人生" />
@@ -41,56 +41,56 @@
           </section>
 
           <section class="config-section">
-            <div class="section-kicker">Text API</div>
+            <div class="section-kicker">文案接口</div>
             <label>
-              Provider
+              服务类型
               <select id="textProvider">
                 <option value="openai">OpenAI-compatible</option>
                 <option value="gemini_web2api">Gemini Web2API</option>
               </select>
             </label>
             <label>
-              Base URL
+              接口地址
               <input id="baseUrl" placeholder="http://127.0.0.1:8081/v1" />
             </label>
             <label>
-              Model
+              模型
               <input id="model" placeholder="gemini-3.5-flash-thinking" />
             </label>
             <label>
-              API Key
+              密钥
               <input id="apiKey" type="password" placeholder="sk-..." />
             </label>
           </section>
 
           <section class="config-section">
-            <div class="section-kicker">Image API</div>
+            <div class="section-kicker">图片接口</div>
             <label>
-              Provider
+              服务类型
               <select id="imageProvider">
                 <option value="openai">OpenAI-compatible</option>
               </select>
             </label>
             <label>
-              Base URL
+              接口地址
               <input id="imageBaseUrl" placeholder="https://api.example.com" />
             </label>
             <label>
-              Model
+              模型
               <input id="imageModel" placeholder="image-model-name" />
             </label>
             <label>
-              API Key
+              密钥
               <input id="imageApiKey" type="password" placeholder="sk-..." />
             </label>
             <label>
-              Size
+              图片尺寸
               <input id="imageSize" value="1024x1792" />
             </label>
           </section>
 
           <section class="config-section">
-            <div class="section-kicker">Voice</div>
+            <div class="section-kicker">配音</div>
             <label>
               音色
               <select id="voice">
@@ -120,7 +120,7 @@
               </div>
               <div class="hero-actions">
                 <button id="resetCopyPrompt" class="secondary-pill" type="button">恢复提示词</button>
-                <button id="generateCopy" class="primary-pill" type="button">生成口播</button>
+                <button id="generateCopy" class="primary-pill" type="button">生成口播并拆分镜</button>
               </div>
             </div>
 
@@ -146,20 +146,26 @@
               </section>
             </div>
 
-            <div class="editor-wrap story-editor">
-              <div class="panel-head">
-                <div>
-                  <h2>Story JSON</h2>
-                  <span id="jsonMeta">0 shots</span>
+            <details class="advanced-story">
+              <summary>
+                <span>分镜数据（自动生成，高级）</span>
+                <span id="jsonMeta">0 个镜头</span>
+              </summary>
+              <div class="editor-wrap story-editor">
+                <div class="panel-head">
+                  <div>
+                    <h2>内部 JSON</h2>
+                  </div>
+                  <div class="panel-actions">
+                    <button id="loadExample" class="utility-button" type="button">加载示例</button>
+                    <button id="buildStoryboard" class="utility-button" type="button">由口播拆分镜</button>
+                    <button id="generate" class="utility-button" type="button">仅用主题生成</button>
+                    <button id="validate" class="utility-button" type="button">校验</button>
+                  </div>
                 </div>
-                <div class="panel-actions">
-                  <button id="loadExample" class="utility-button" type="button">加载示例</button>
-                  <button id="generate" class="utility-button" type="button">生成分镜 JSON</button>
-                  <button id="validate" class="utility-button" type="button">校验</button>
-                </div>
+                <textarea id="jsonEditor" spellcheck="false"></textarea>
               </div>
-              <textarea id="jsonEditor" spellcheck="false"></textarea>
-            </div>
+            </details>
           </section>
 
           <section class="tab-view" id="tab-image">
@@ -194,7 +200,7 @@
               <div class="hero-tile dark">
                 <div>
                   <h1>最后合成视频。</h1>
-                  <p>使用当前 JSON、图片路径、Edge TTS 和字幕生成竖屏 MP4。</p>
+                  <p>使用当前分镜、图片路径、Edge TTS 和字幕生成竖屏 MP4。</p>
                 </div>
                 <div class="hero-actions">
                   <button id="render" class="primary-pill" type="button">渲染 MP4</button>

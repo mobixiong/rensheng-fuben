@@ -22,8 +22,8 @@
       "voiceover": "string",
       "visual": "string",
       "punch": "2-6个字的画面关键词",
-      "image_prompt": "English image prompt, no readable text",
-      "video_prompt": "English motion prompt"
+      "image_prompt": "中文生图提示词，不要出现可读文字",
+      "video_prompt": "中文镜头运动提示词"
     }
   ]
 }
@@ -31,5 +31,7 @@
 硬性要求：
 - shots 数量 8 到 14 个
 - voiceover 是中文口播，不要太长
+- image_prompt 使用中文，重点写场景、主体、道具、构图和情绪
+- video_prompt 使用中文，描述轻微镜头运动或画面动势
 - image_prompt 不要要求模型绘制可读文字
 - 不要包含 API key、注释、解释、Markdown

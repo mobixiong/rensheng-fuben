@@ -9,6 +9,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROMPT_PATH = ROOT / "prompts" / "story_shots.md"
+COPY_TO_STORY_PROMPT_PATH = ROOT / "prompts" / "copy_to_story.md"
 GEMINI_WEB2API_BASE_URL = "http://127.0.0.1:8081/v1"
 GEMINI_WEB2API_MODEL = "gemini-3.5-flash-thinking"
 
@@ -40,6 +41,10 @@ def load_default_prompt() -> str:
     return DEFAULT_PROMPT_PATH.read_text(encoding="utf-8")
 
 
+def load_copy_to_story_prompt() -> str:
+    return COPY_TO_STORY_PROMPT_PATH.read_text(encoding="utf-8")
+
+
 def _endpoint(base_url: str) -> str:
     clean = base_url.rstrip("/")
     if clean.endswith("/v1/chat/completions") or clean.endswith("/chat/completions"):
@@ -63,7 +68,7 @@ def _extract_json(text: str) -> dict[str, Any]:
         raise
 
 
-def _openai_text(prompt: str, topic: str, cfg: LLMConfig) -> str:
+def _chat_text(system_prompt: str, user_content: str, cfg: LLMConfig) -> str:
     if not cfg.base_url or not cfg.api_key or not cfg.model:
         raise LLMError("LLM base_url/api_key/model is required")
 
@@ -71,8 +76,8 @@ def _openai_text(prompt: str, topic: str, cfg: LLMConfig) -> str:
         "model": cfg.model,
         "temperature": cfg.temperature,
         "messages": [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"\u4e3b\u9898\uff1a{topic}"},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
         ],
     }
     req = urllib.request.Request(
@@ -100,14 +105,27 @@ def _openai_text(prompt: str, topic: str, cfg: LLMConfig) -> str:
         raise LLMError(f"Unexpected LLM response: {str(data)[:1000]}") from exc
 
 
-def _gemini_web2api_text(prompt: str, topic: str, cfg: LLMConfig) -> str:
+def _provider_text(system_prompt: str, user_content: str, cfg: LLMConfig) -> str:
+    provider = (cfg.provider or "openai").lower()
+    if provider in {"openai", "openai_compatible", "compatible"}:
+        return _chat_text(system_prompt, user_content, cfg)
+    if provider in {"gemini", "gemini_web2api", "web2api", "gemini_reverse_proxy"}:
+        return _gemini_web2api_text(system_prompt, user_content, cfg)
+    raise LLMError(f"Unsupported text provider: {cfg.provider}")
+
+
+def _openai_text(prompt: str, topic: str, cfg: LLMConfig) -> str:
+    return _chat_text(prompt, f"\u4e3b\u9898\uff1a{topic}", cfg)
+
+
+def _gemini_web2api_text(prompt: str, user_content: str, cfg: LLMConfig) -> str:
     web2api_cfg = replace(
         cfg,
         base_url=cfg.base_url or os.getenv("GEMINI_WEB2API_BASE_URL") or GEMINI_WEB2API_BASE_URL,
         api_key=cfg.api_key or os.getenv("GEMINI_WEB2API_API_KEY") or "sk-local",
         model=cfg.model or os.getenv("GEMINI_WEB2API_MODEL") or GEMINI_WEB2API_MODEL,
     )
-    return _openai_text(prompt, topic, web2api_cfg)
+    return _chat_text(prompt, user_content, web2api_cfg)
 
 
 def _fill_topic_placeholders(prompt: str, topic: str) -> str:
@@ -124,13 +142,7 @@ def _fill_topic_placeholders(prompt: str, topic: str) -> str:
 
 def generate_text(topic: str, cfg: LLMConfig, system_prompt: str | None = None) -> str:
     prompt = _fill_topic_placeholders(system_prompt or load_default_prompt(), topic)
-    provider = (cfg.provider or "openai").lower()
-    if provider in {"openai", "openai_compatible", "compatible"}:
-        content = _openai_text(prompt, topic, cfg)
-    elif provider in {"gemini", "gemini_web2api", "web2api", "gemini_reverse_proxy"}:
-        content = _gemini_web2api_text(prompt, topic, cfg)
-    else:
-        raise LLMError(f"Unsupported text provider: {cfg.provider}")
+    content = _provider_text(prompt, f"\u4e3b\u9898\uff1a{topic}", cfg)
     return content.strip()
 
 
@@ -140,3 +152,17 @@ def generate_story(topic: str, cfg: LLMConfig, system_prompt: str | None = None)
         return _extract_json(content)
     except Exception as exc:
         raise LLMError(f"LLM did not return valid JSON: {content[:1000]}") from exc
+
+
+def generate_story_from_copy(topic: str, copy_text: str, cfg: LLMConfig, system_prompt: str | None = None) -> dict[str, Any]:
+    prompt = system_prompt or load_copy_to_story_prompt()
+    user_content = "\n\n".join([
+        f"主题：{topic}",
+        "完整口播文案：",
+        copy_text.strip(),
+    ])
+    content = _provider_text(prompt, user_content, cfg)
+    try:
+        return _extract_json(content)
+    except Exception as exc:
+        raise LLMError(f"LLM did not return valid storyboard JSON: {content[:1000]}") from exc

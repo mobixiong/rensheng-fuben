@@ -29,7 +29,7 @@ function setStatus(text, kind = "") {
 }
 
 function setBusy(busy) {
-  for (const id of ["loadExample", "generate", "generateCopy", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt"]) {
+  for (const id of ["loadExample", "generate", "generateCopy", "buildStoryboard", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt"]) {
     const el = $(id);
     if (el) el.disabled = busy;
   }
@@ -50,9 +50,9 @@ function updateMeta() {
     const story = readStory();
     const shots = story.shots?.length || 0;
     const imageCount = (story.shots || []).filter((shot) => shot.image_path || shot.image_url).length;
-    jsonMeta.textContent = `${shots} shots · ${imageCount} images`;
+    jsonMeta.textContent = `${shots} 个镜头 · ${imageCount} 张图`;
   } catch {
-    jsonMeta.textContent = "invalid JSON";
+    jsonMeta.textContent = "分镜数据无效";
   }
 }
 
@@ -166,6 +166,18 @@ function storyPayload() {
   };
 }
 
+function copyToStoryPayload(copyText) {
+  return {
+    topic: $("topic").value.trim(),
+    copy_text: copyText.trim(),
+    provider: $("textProvider").value,
+    base_url: $("baseUrl").value.trim(),
+    model: $("model").value.trim(),
+    api_key: $("apiKey").value.trim(),
+    temperature: 0.5,
+  };
+}
+
 function imagePayload(extra = {}) {
   return {
     story: readStory(),
@@ -180,24 +192,24 @@ function imagePayload(extra = {}) {
 }
 
 async function loadExample() {
-  setStatus("Loading", "busy");
+  setStatus("加载中", "busy");
   const res = await fetch("/api/example");
   writeStory(await res.json());
-  setStatus("Ready");
+  setStatus("就绪");
 }
 
 async function generateStory() {
   persistSettings();
   setBusy(true);
-  setStatus("Writing", "busy");
+  setStatus("生成中", "busy");
   try {
     const data = await postJson("/api/text/generate", storyPayload());
     writeStory(data);
-    resultEl.textContent = JSON.stringify({ text_generation: "ok", shots: data.shots?.length || 0 }, null, 2);
-    setStatus("Ready");
+    resultEl.textContent = JSON.stringify({ "分镜生成": "完成", "镜头数": data.shots?.length || 0 }, null, 2);
+    setStatus("就绪");
     setTab("image");
   } catch (err) {
-    setStatus("Error", "error");
+    setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
   } finally {
     setBusy(false);
@@ -207,15 +219,48 @@ async function generateStory() {
 async function generateCopy() {
   persistSettings();
   setBusy(true);
-  setStatus("Writing", "busy");
+  setStatus("写口播", "busy");
   try {
     const data = await postJson("/api/text/generate-copy", textPayload());
     copyOutput.value = data.text || "";
-    resultEl.textContent = JSON.stringify({ copy_generation: "ok", topic: data.topic, chars: copyOutput.value.length }, null, 2);
     updatePromptMeta();
-    setStatus("Ready");
+    setStatus("拆分镜", "busy");
+    const story = await postJson("/api/text/copy-to-story", copyToStoryPayload(copyOutput.value));
+    writeStory(story);
+    resultEl.textContent = JSON.stringify({
+      "口播生成": "完成",
+      "分镜拆分": "完成",
+      "主题": data.topic,
+      "字数": copyOutput.value.length,
+      "镜头数": story.shots?.length || 0,
+    }, null, 2);
+    setStatus("就绪");
+    setTab("image");
   } catch (err) {
-    setStatus("Error", "error");
+    setStatus("出错", "error");
+    resultEl.textContent = String(err.message || err);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function buildStoryboardFromCopy() {
+  persistSettings();
+  setBusy(true);
+  setStatus("拆分镜", "busy");
+  try {
+    const text = copyOutput.value.trim();
+    if (!text) throw new Error("请先生成或填写口播文案");
+    const story = await postJson("/api/text/copy-to-story", copyToStoryPayload(text));
+    writeStory(story);
+    resultEl.textContent = JSON.stringify({
+      "分镜拆分": "完成",
+      "镜头数": story.shots?.length || 0,
+    }, null, 2);
+    setStatus("就绪");
+    setTab("image");
+  } catch (err) {
+    setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
   } finally {
     setBusy(false);
@@ -225,18 +270,18 @@ async function generateCopy() {
 async function generateImages() {
   persistSettings();
   setBusy(true);
-  setStatus("Images", "busy");
+  setStatus("生图中", "busy");
   try {
     const data = await postJson("/api/image/generate-story", imagePayload());
     writeStory(data);
     resultEl.textContent = JSON.stringify({
-      image_generation: "ok",
-      project_id: data.project_id,
-      shots: data.shots?.length || 0,
+      "图片生成": "完成",
+      "项目编号": data.project_id,
+      "镜头数": data.shots?.length || 0,
     }, null, 2);
-    setStatus("Ready");
+    setStatus("就绪");
   } catch (err) {
-    setStatus("Error", "error");
+    setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
   } finally {
     setBusy(false);
@@ -247,18 +292,18 @@ async function redrawShot(index) {
   persistSettings();
   selectedShot = index;
   setBusy(true);
-  setStatus("Redrawing", "busy");
+  setStatus("重抽中", "busy");
   try {
     const data = await postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }));
     writeStory(data);
     resultEl.textContent = JSON.stringify({
-      redraw: "ok",
-      shot: index + 1,
-      project_id: data.project_id,
+      "重抽": "完成",
+      "镜头": index + 1,
+      "项目编号": data.project_id,
     }, null, 2);
-    setStatus("Ready");
+    setStatus("就绪");
   } catch (err) {
-    setStatus("Error", "error");
+    setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
   } finally {
     setBusy(false);
@@ -269,20 +314,20 @@ function validateJson() {
   try {
     const story = readStory();
     if (!Array.isArray(story.shots) || story.shots.length === 0) {
-      throw new Error("story.shots must be a non-empty array");
+      throw new Error("分镜数据里必须有镜头列表");
     }
     for (const [i, shot] of story.shots.entries()) {
-      if (!shot.voiceover) throw new Error(`shot ${i + 1} missing voiceover`);
+      if (!shot.voiceover) throw new Error(`第 ${i + 1} 个镜头缺少口播`);
     }
     resultEl.textContent = JSON.stringify({
-      ok: true,
-      title: story.title,
-      shots: story.shots.length,
-      images: story.shots.filter((shot) => shot.image_path || shot.image_url).length,
+      "校验": "通过",
+      "标题": story.title,
+      "镜头数": story.shots.length,
+      "图片数": story.shots.filter((shot) => shot.image_path || shot.image_url).length,
     }, null, 2);
-    setStatus("Valid");
+    setStatus("已通过");
   } catch (err) {
-    setStatus("Invalid", "error");
+    setStatus("无效", "error");
     resultEl.textContent = String(err.message || err);
   }
 }
@@ -290,7 +335,7 @@ function validateJson() {
 async function renderVideo() {
   persistSettings();
   setBusy(true);
-  setStatus("Rendering", "busy");
+  setStatus("渲染中", "busy");
   openVideo.hidden = true;
   preview.removeAttribute("src");
   try {
@@ -303,9 +348,9 @@ async function renderVideo() {
     preview.src = data.video;
     openVideo.href = data.video;
     openVideo.hidden = false;
-    setStatus("Done");
+    setStatus("完成");
   } catch (err) {
-    setStatus("Error", "error");
+    setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
   } finally {
     setBusy(false);
@@ -332,14 +377,14 @@ function renderShotGrid() {
   shotGrid.innerHTML = shots.map((shot, index) => {
     const src = shotImageSrc(shot);
     const thumb = src
-      ? `<img src="${src}" alt="shot ${index + 1}" />`
-      : `<div class="shot-placeholder">Shot ${index + 1}<br />等待生成</div>`;
+      ? `<img src="${src}" alt="镜头 ${index + 1}" />`
+      : `<div class="shot-placeholder">镜头 ${index + 1}<br />等待生成</div>`;
     const selected = index === selectedShot ? " selected" : "";
     const punch = shot.punch || shot.keyword || `镜头 ${index + 1}`;
     const voiceover = shot.voiceover || "";
     return `
       <article class="shot-card${selected}" data-shot="${index}">
-        <button class="shot-thumb" type="button" data-select-shot="${index}">${thumb}</button>
+        <button class="shot-thumb" type="button" data-select-shot="${index}" aria-label="选择镜头 ${index + 1}">${thumb}</button>
         <div class="shot-info">
           <div class="shot-title-row">
             <strong>${escapeHtml(punch)}</strong>
@@ -381,6 +426,7 @@ document.addEventListener("click", (event) => {
 $("loadExample").addEventListener("click", loadExample);
 $("generate").addEventListener("click", generateStory);
 $("generateCopy").addEventListener("click", generateCopy);
+$("buildStoryboard").addEventListener("click", buildStoryboardFromCopy);
 $("generateImages").addEventListener("click", generateImages);
 $("redrawSelected").addEventListener("click", () => redrawShot(selectedShot));
 $("refreshGallery").addEventListener("click", renderShotGrid);
@@ -420,4 +466,4 @@ $("textProvider").addEventListener("change", () => {
 
 loadSettings();
 loadPromptDefaults().catch(() => updatePromptMeta());
-loadExample().catch(() => setStatus("Ready"));
+loadExample().catch(() => setStatus("就绪"));
