@@ -34,6 +34,8 @@ let defaultImagePrompt = "";
 let saveTimer = 0;
 let restoringProject = false;
 let currentProjectId = "";
+let imageGenerationActive = false;
+let projectSaveQueue = Promise.resolve();
 
 function setStatus(text, kind = "") {
   statusEl.textContent = text;
@@ -167,19 +169,20 @@ function projectState() {
 }
 
 function scheduleProjectSave() {
-  if (restoringProject) return;
+  if (restoringProject || imageGenerationActive) return;
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(saveProjectNow, PROJECT_SAVE_DELAY_MS);
 }
 
-async function saveProjectNow() {
+async function saveProjectNow(options = {}) {
+  const {applyState = true, refreshProjects = true} = options;
   if (restoringProject) return;
   try {
     const data = await postJson("/api/project/current", projectState());
     if (data.project_id) currentProjectId = data.project_id;
-    if (data.state) applyProjectState(data.state, {preserveTab: true, fromSave: true});
+    if (applyState && !imageGenerationActive && data.state) applyProjectState(data.state, {preserveTab: true, fromSave: true});
     setProjectMeta(currentProjectId, data.saved_at ? `已保存 ${data.saved_at}` : "已保存");
-    await loadProjectList();
+    if (refreshProjects) await loadProjectList();
     return data;
   } catch (err) {
     setProjectMeta(currentProjectId || "保存失败", "保存失败");
@@ -188,8 +191,15 @@ async function saveProjectNow() {
   }
 }
 
-async function ensureProjectSaved() {
-  const data = await saveProjectNow();
+function queueProjectSave(options = {}) {
+  projectSaveQueue = projectSaveQueue
+    .catch(() => null)
+    .then(() => saveProjectNow(options));
+  return projectSaveQueue;
+}
+
+async function ensureProjectSaved(options = {}) {
+  const data = await saveProjectNow(options);
   return data?.project_id || currentProjectId;
 }
 
@@ -547,7 +557,7 @@ async function regenerateShotWithRetry(story, index) {
       story.shots[index]._image_attempt = attempt + 1;
       delete story.shots[index]._image_error;
       writeStory(story);
-      await saveProjectNow();
+      await queueProjectSave({applyState: false, refreshProjects: false});
     }
     try {
       return await postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }, story));
@@ -557,7 +567,7 @@ async function regenerateShotWithRetry(story, index) {
         story.shots[index]._image_status = "retrying";
         story.shots[index]._image_error = String(err.message || err);
         writeStory(story);
-        await saveProjectNow();
+        await queueProjectSave({applyState: false, refreshProjects: false});
       }
     }
   }
@@ -568,8 +578,10 @@ async function generateImagesParallel() {
   persistSettings();
   setBusy(true);
   setStatus("并行生图", "busy");
+  imageGenerationActive = true;
+  clearTimeout(saveTimer);
   try {
-    await ensureProjectSaved();
+    await ensureProjectSaved({applyState: false, refreshProjects: false});
     let story = readStory();
     const shots = story.shots || [];
     if (!Array.isArray(shots) || shots.length === 0) {
@@ -600,7 +612,7 @@ async function generateImagesParallel() {
             "项目编号": story.project_id,
           }, null, 2);
           setStatus(`生图 ${completed}/${shots.length}`, "busy");
-          await saveProjectNow();
+          await queueProjectSave({applyState: false, refreshProjects: false});
           return data;
         })
         .catch(async (err) => {
@@ -608,7 +620,7 @@ async function generateImagesParallel() {
             story.shots[index]._image_status = "error";
             story.shots[index]._image_error = String(err.message || err);
             writeStory(story);
-            await saveProjectNow();
+            await queueProjectSave({applyState: false, refreshProjects: false});
           }
           throw err;
         })
@@ -625,11 +637,16 @@ async function generateImagesParallel() {
       "项目编号": story.project_id,
       "镜头数": story.shots?.length || 0,
     }, null, 2);
+    await queueProjectSave({applyState: false, refreshProjects: false});
     setStatus("就绪");
   } catch (err) {
     setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
+    await queueProjectSave({applyState: false, refreshProjects: false});
   } finally {
+    await projectSaveQueue.catch(() => null);
+    imageGenerationActive = false;
+    await loadProjectList().catch(() => null);
     setBusy(false);
   }
 }
@@ -638,8 +655,10 @@ async function generateImages() {
   persistSettings();
   setBusy(true);
   setStatus("生图中", "busy");
+  imageGenerationActive = true;
+  clearTimeout(saveTimer);
   try {
-    await ensureProjectSaved();
+    await ensureProjectSaved({applyState: false, refreshProjects: false});
     let story = readStory();
     const shots = story.shots || [];
     if (!Array.isArray(shots) || shots.length === 0) {
@@ -665,18 +684,23 @@ async function generateImages() {
         "总镜头数": shots.length,
         "项目编号": story.project_id,
       }, null, 2);
-      await saveProjectNow();
+      await queueProjectSave({applyState: false, refreshProjects: false});
     }
     resultEl.textContent = JSON.stringify({
       "图片生成": "完成",
       "项目编号": story.project_id,
       "镜头数": story.shots?.length || 0,
     }, null, 2);
+    await queueProjectSave({applyState: false, refreshProjects: false});
     setStatus("就绪");
   } catch (err) {
     setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
+    await queueProjectSave({applyState: false, refreshProjects: false});
   } finally {
+    await projectSaveQueue.catch(() => null);
+    imageGenerationActive = false;
+    await loadProjectList().catch(() => null);
     setBusy(false);
   }
 }
@@ -686,8 +710,10 @@ async function redrawShot(index) {
   selectedShot = index;
   setBusy(true);
   setStatus("重抽中", "busy");
+  imageGenerationActive = true;
+  clearTimeout(saveTimer);
   try {
-    await ensureProjectSaved();
+    await ensureProjectSaved({applyState: false, refreshProjects: false});
     let story = readStory();
     if (!story.project_id) {
       story = {...story, project_id: mediaProjectId() || createImageProjectId()};
@@ -701,11 +727,16 @@ async function redrawShot(index) {
       "镜头": index + 1,
       "项目编号": data.project_id,
     }, null, 2);
+    await queueProjectSave({applyState: false, refreshProjects: false});
     setStatus("就绪");
   } catch (err) {
     setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
+    await queueProjectSave({applyState: false, refreshProjects: false});
   } finally {
+    await projectSaveQueue.catch(() => null);
+    imageGenerationActive = false;
+    await loadProjectList().catch(() => null);
     setBusy(false);
   }
 }

@@ -116,6 +116,24 @@ def _workspace_path_from_url(url: str):
     return candidate
 
 
+def _project_image_for_index(image_dir: Path, index: int) -> Path | None:
+    stem = f"shot_{index:02d}"
+    for suffix in (".png", ".jpg", ".jpeg", ".webp"):
+        candidate = image_dir / f"{stem}{suffix}"
+        if candidate.exists():
+            return candidate
+    matches = sorted(image_dir.glob(f"{stem}.*"))
+    return matches[0] if matches else None
+
+
+def _mark_shot_image_done(shot: dict[str, Any], project_id: str, image_path: Path) -> None:
+    shot["image_path"] = str(image_path.resolve())
+    shot["image_url"] = f"/workspace/projects/{project_id}/images/{image_path.name}"
+    if shot.get("_image_status") in {None, "", "pending", "generating", "retrying"}:
+        shot["_image_status"] = "done"
+    shot.pop("_image_error", None)
+
+
 def _copy_project_images(state: dict[str, Any], project_dir) -> None:
     story = state.get("story")
     if not isinstance(story, dict):
@@ -135,14 +153,33 @@ def _copy_project_images(state: dict[str, Any], project_dir) -> None:
             source = Path(raw_path)
         if (not source or not source.exists()) and shot.get("image_url"):
             source = _workspace_path_from_url(str(shot.get("image_url")))
-        if not source or not source.exists():
-            continue
+        if source and source.exists():
+            target = image_dir / f"shot_{index:02d}{source.suffix or '.png'}"
+            if source.resolve() != target.resolve():
+                shutil.copy2(source, target)
+        else:
+            target = _project_image_for_index(image_dir, index)
+        if target and target.exists():
+            _mark_shot_image_done(shot, state["project_id"], target)
 
-        target = image_dir / f"shot_{index:02d}{source.suffix or '.png'}"
-        if source.resolve() != target.resolve():
-            shutil.copy2(source, target)
-        shot["image_path"] = str(target.resolve())
-        shot["image_url"] = f"/workspace/projects/{state['project_id']}/images/{target.name}"
+
+def _hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, Any]:
+    story = state.get("story")
+    if not isinstance(story, dict):
+        return state
+    shots = story.get("shots")
+    if not isinstance(shots, list):
+        return state
+    image_dir = _project_dir(project_id) / "images"
+    if not image_dir.exists():
+        return state
+    for index, shot in enumerate(shots, 1):
+        if not isinstance(shot, dict):
+            continue
+        image_path = _project_image_for_index(image_dir, index)
+        if image_path and image_path.exists():
+            _mark_shot_image_done(shot, project_id, image_path)
+    return state
 
 
 def _write_project_files(state: dict[str, Any]) -> dict[str, Any]:
@@ -186,7 +223,7 @@ def _read_project_state(project_id: str) -> dict[str, Any]:
     state_path = _project_dir(safe_id) / "state.json"
     if not state_path.exists():
         raise FileNotFoundError(safe_id)
-    return json.loads(state_path.read_text(encoding="utf-8"))
+    return _hydrate_project_images(json.loads(state_path.read_text(encoding="utf-8")), safe_id)
 
 
 def _project_summary(project_dir: Path) -> dict[str, Any] | None:
@@ -252,7 +289,7 @@ def project_current() -> dict[str, Any]:
         state_path = _project_dir(project_id) / "state.json"
         if not state_path.exists():
             return {"exists": False}
-        return {"exists": True, "state": json.loads(state_path.read_text(encoding="utf-8"))}
+        return {"exists": True, "state": _read_project_state(project_id)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Project state is unreadable: {exc}") from exc
 
