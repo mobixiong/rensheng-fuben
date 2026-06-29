@@ -100,6 +100,17 @@ subtitle.srt
 顶部项目选择器可以切换已有项目，“新建项目”会创建一个新的当前项目。
 图片生成完成后会回填到当前项目的 `story.json` 和 `images/` 目录。
 
+## 前端结构
+
+前端使用原生 ES Modules，入口是 `static/app.js`，其余代码按职责拆到 `static/js/`：
+
+- `api.js`：HTTP 请求封装
+- `ui.js`：DOM 查询、状态、设置抽屉、标签切换
+- `settings.js`：本地设置、接口配置和请求 payload
+- `story-view.js`：分镜 JSON、字数统计、分镜卡片渲染
+- `project-store.js`：项目保存、恢复、切换和自动保存
+- `workflow.js`：口播、拆分镜、生图、重抽、渲染视频流程
+
 ## Gemini Web2API
 
 Gemini 文本走 `gemini-web2api`，它本身提供 OpenAI-compatible API。

@@ -1,0 +1,155 @@
+import { PROJECT_SAVE_DELAY_MS } from "./constants.js";
+import { escapeHtml } from "./html.js";
+
+export function createProjectStore({ els, ui, api, storyView, state, settings, setActiveTab }) {
+  function projectState() {
+    return {
+      version: 1,
+      project_id: state.currentProjectId,
+      topic: els.topic.value,
+      active_tab: state.activeTab,
+      selected_shot: state.selectedShot,
+      copy_text: els.copyOutput.value,
+      story_json: els.editor.value,
+      story: storyView.readOrNull(),
+      result_text: els.result.textContent,
+      copy_prompt: els.copyPrompt.value,
+      image_prompt: els.imagePrompt.value,
+    };
+  }
+
+  function scheduleSave() {
+    if (state.restoringProject || state.imageGenerationActive) return;
+    clearTimeout(state.saveTimer);
+    state.saveTimer = window.setTimeout(saveNow, PROJECT_SAVE_DELAY_MS);
+  }
+
+  async function saveNow(options = {}) {
+    const { applyState = true, refreshProjects = true } = options;
+    if (state.restoringProject) return null;
+    try {
+      const data = await api.postJson("/api/project/current", projectState());
+      if (data.project_id) state.currentProjectId = data.project_id;
+      if (applyState && !state.imageGenerationActive && data.state) {
+        applyProjectState(data.state, { preserveTab: true, fromSave: true });
+      }
+      ui.setProjectMeta(state.currentProjectId, data.saved_at ? `已保存 ${data.saved_at}` : "已保存");
+      if (els.projectPicker && state.currentProjectId) els.projectPicker.value = state.currentProjectId;
+      if (refreshProjects) await loadList();
+      return data;
+    } catch (err) {
+      ui.setProjectMeta(state.currentProjectId || "保存失败", "保存失败");
+      console.warn("Project autosave failed", err);
+      return null;
+    }
+  }
+
+  function queueSave(options = {}) {
+    state.projectSaveQueue = state.projectSaveQueue
+      .catch(() => null)
+      .then(() => saveNow(options));
+    return state.projectSaveQueue;
+  }
+
+  async function ensureSaved(options = {}) {
+    const data = await saveNow(options);
+    return data?.project_id || state.currentProjectId;
+  }
+
+  function mediaProjectId() {
+    return state.currentProjectId ? `projects/${state.currentProjectId}` : "";
+  }
+
+  function applyProjectState(projectStateData, options = {}) {
+    state.restoringProject = true;
+    state.currentProjectId = projectStateData.project_id || state.currentProjectId || "";
+    ui.setProjectMeta(
+      state.currentProjectId,
+      projectStateData.saved_at ? `${options.fromSave ? "已保存" : "已恢复"} ${projectStateData.saved_at}` : "已恢复",
+    );
+    if (typeof projectStateData.topic === "string") els.topic.value = projectStateData.topic;
+    if (typeof projectStateData.copy_text === "string") els.copyOutput.value = projectStateData.copy_text;
+    if (typeof projectStateData.copy_prompt === "string") els.copyPrompt.value = projectStateData.copy_prompt;
+    if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
+    if (typeof projectStateData.result_text === "string") els.result.textContent = projectStateData.result_text;
+    state.selectedShot = Number.isInteger(projectStateData.selected_shot) ? projectStateData.selected_shot : state.selectedShot;
+
+    if (projectStateData.story && typeof projectStateData.story === "object") {
+      storyView.write(projectStateData.story, { scheduleSave: false });
+    } else if (typeof projectStateData.story_json === "string") {
+      els.editor.value = projectStateData.story_json;
+      storyView.updateMeta();
+      storyView.renderShotGrid();
+    }
+
+    storyView.updatePromptMeta();
+    if (!options.preserveTab) {
+      setActiveTab(["copy", "image", "video"].includes(projectStateData.active_tab) ? projectStateData.active_tab : "copy");
+    }
+    state.restoringProject = false;
+  }
+
+  async function loadList() {
+    if (!els.projectPicker) return;
+    const data = await api.fetchJson("/api/projects").catch(() => null);
+    if (!data) return;
+    const projects = Array.isArray(data.projects) ? data.projects : [];
+    els.projectPicker.innerHTML = '<option value="">未保存项目</option>' + projects.map((project) => {
+      const label = `${project.topic || project.project_id} ${project.saved_at ? "· " + project.saved_at : ""}`;
+      return `<option value="${escapeHtml(project.project_id)}">${escapeHtml(label)}</option>`;
+    }).join("");
+    els.projectPicker.value = state.currentProjectId || data.active_project_id || "";
+  }
+
+  async function loadState() {
+    const data = await api.fetchJson("/api/project/current").catch(() => null);
+    if (!data?.exists || !data.state) return false;
+    applyProjectState(data.state);
+    return true;
+  }
+
+  async function activate(projectId) {
+    if (!projectId) return;
+    ui.setBusy(true);
+    ui.setStatus("切换项目", "busy");
+    try {
+      const data = await api.postJson("/api/project/activate", { project_id: projectId });
+      applyProjectState(data.state || {});
+      await loadList();
+      ui.setStatus("就绪");
+    } catch (err) {
+      ui.setStatus("出错", "error");
+      els.result.textContent = String(err.message || err);
+    } finally {
+      ui.setBusy(false);
+    }
+  }
+
+  function createNew() {
+    state.currentProjectId = "";
+    state.selectedShot = 0;
+    els.topic.value = "新项目";
+    els.copyOutput.value = "";
+    els.result.textContent = "{}";
+    storyView.write({ title: "", style_preset: "", shots: [] }, { scheduleSave: false });
+    storyView.updatePromptMeta();
+    ui.setProjectMeta("未保存项目", "新项目");
+    if (els.projectPicker) els.projectPicker.value = "";
+    setActiveTab("copy");
+    settings.persist();
+    scheduleSave();
+  }
+
+  return {
+    scheduleSave,
+    saveNow,
+    queueSave,
+    ensureSaved,
+    mediaProjectId,
+    applyProjectState,
+    loadList,
+    loadState,
+    activate,
+    createNew,
+  };
+}
