@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>人生副本工作台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="app-frame">
+      <nav class="global-nav">
+        <div class="brand-mark">人生副本</div>
+        <div class="global-nav-links">
+          <span>Text</span>
+          <span>Image</span>
+          <span>Video</span>
+        </div>
+        <div class="status-pill" id="status">Ready</div>
+      </nav>
+
+      <header class="sub-nav">
+        <div>
+          <div class="product-name">人生副本工作台</div>
+          <div class="product-caption">文案、分镜图和成片的轻量工作流</div>
+        </div>
+        <div class="workflow-tabs" role="tablist" aria-label="workflow">
+          <button class="tab-button active" data-tab="copy" type="button">文案</button>
+          <button class="tab-button" data-tab="image" type="button">图片</button>
+          <button class="tab-button" data-tab="video" type="button">视频</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="config-rail">
+          <section class="config-section">
+            <div class="section-kicker">Project</div>
+            <label>
+              主题
+              <input id="topic" value="自助餐成瘾者回本哥的人生" />
+            </label>
+          </section>
+
+          <section class="config-section">
+            <div class="section-kicker">Text API</div>
+            <label>
+              Provider
+              <select id="textProvider">
+                <option value="openai">OpenAI-compatible</option>
+                <option value="gemini_webapi">Gemini WebAPI</option>
+              </select>
+            </label>
+            <label>
+              Base URL
+              <input id="baseUrl" placeholder="https://api.example.com" />
+            </label>
+            <label>
+              Model
+              <input id="model" placeholder="model-name" />
+            </label>
+            <label>
+              API Key
+              <input id="apiKey" type="password" placeholder="sk-..." />
+            </label>
+          </section>
+
+          <section class="config-section">
+            <div class="section-kicker">Image API</div>
+            <label>
+              Provider
+              <select id="imageProvider">
+                <option value="openai">OpenAI-compatible</option>
+                <option value="gemini_webapi">Gemini WebAPI</option>
+              </select>
+            </label>
+            <label>
+              Base URL
+              <input id="imageBaseUrl" placeholder="https://api.example.com" />
+            </label>
+            <label>
+              Model
+              <input id="imageModel" placeholder="image-model-name" />
+            </label>
+            <label>
+              API Key
+              <input id="imageApiKey" type="password" placeholder="sk-..." />
+            </label>
+            <label>
+              Size
+              <input id="imageSize" value="1024x1792" />
+            </label>
+          </section>
+
+          <section class="config-section">
+            <div class="section-kicker">Gemini Web</div>
+            <label>
+              __Secure-1PSID
+              <input id="geminiPsid" type="password" placeholder="Gemini cookie" />
+            </label>
+            <label>
+              __Secure-1PSIDTS
+              <input id="geminiPsidts" type="password" placeholder="Optional" />
+            </label>
+          </section>
+
+          <section class="config-section">
+            <div class="section-kicker">Voice</div>
+            <label>
+              音色
+              <select id="voice">
+                <option value="zh-CN-YunxiNeural">云希男声</option>
+                <option value="zh-CN-XiaoxiaoNeural">晓晓女声</option>
+                <option value="zh-CN-YunjianNeural">云健男声</option>
+                <option value="zh-CN-XiaoyiNeural">晓伊女声</option>
+              </select>
+            </label>
+            <label>
+              语速
+              <select id="rate">
+                <option value="+12%">+12%</option>
+                <option value="+0%">+0%</option>
+                <option value="+20%">+20%</option>
+                <option value="-5%">-5%</option>
+              </select>
+            </label>
+          </section>
+        </aside>
+
+        <section class="stage">
+          <section class="tab-view active" id="tab-copy">
+            <div class="hero-tile light">
+              <div>
+                <h1>先把副本写清楚。</h1>
+                <p>生成或编辑 Story JSON。后面的图片和视频都依赖这个结构。</p>
+              </div>
+              <div class="hero-actions">
+                <button id="loadExample" class="secondary-pill" type="button">加载示例</button>
+                <button id="generate" class="primary-pill" type="button">生成文案</button>
+              </div>
+            </div>
+
+            <div class="editor-wrap">
+              <div class="panel-head">
+                <div>
+                  <h2>Story JSON</h2>
+                  <span id="jsonMeta">0 shots</span>
+                </div>
+                <button id="validate" class="utility-button" type="button">校验</button>
+              </div>
+              <textarea id="jsonEditor" spellcheck="false"></textarea>
+            </div>
+          </section>
+
+          <section class="tab-view" id="tab-image">
+            <div class="hero-tile parchment">
+              <div>
+                <h1>再生成分镜图。</h1>
+                <p>可批量生成，也可以对不满意的单张图片重抽。</p>
+              </div>
+              <div class="hero-actions">
+                <button id="refreshGallery" class="secondary-pill" type="button">刷新列表</button>
+                <button id="generateImages" class="primary-pill" type="button">批量生成</button>
+              </div>
+            </div>
+            <div class="image-toolbar">
+              <div id="selectedShotLabel">未选择镜头</div>
+              <button id="redrawSelected" class="utility-button" type="button">重抽选中图片</button>
+            </div>
+            <div class="shot-grid" id="shotGrid"></div>
+          </section>
+
+          <section class="tab-view" id="tab-video">
+            <div class="video-layout">
+              <div class="hero-tile dark">
+                <div>
+                  <h1>最后合成视频。</h1>
+                  <p>使用当前 JSON、图片路径、Edge TTS 和字幕生成竖屏 MP4。</p>
+                </div>
+                <div class="hero-actions">
+                  <button id="render" class="primary-pill" type="button">渲染 MP4</button>
+                </div>
+              </div>
+              <div class="video-output">
+                <video id="preview" controls playsinline></video>
+                <div class="output-meta">
+                  <a id="openVideo" class="text-link" href="#" target="_blank" hidden>打开视频</a>
+                  <pre id="result">{}</pre>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

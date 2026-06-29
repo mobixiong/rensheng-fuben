@@ -1,0 +1,86 @@
+{
+  "title": "自助餐成瘾者回本哥的人生",
+  "style_preset": "中国网络科普动画风格，赛璐璐着色，粗黑描边，干净利落的矢量线条，2D平面动画，高对比阴影，高饱和色调，少量关键词花字。主角是无脸圆形白色光头角色，极简点状眼睛，夸张眉毛，表情包风格，穿连帽衫或制服，Q版但不过度幼稚。",
+  "shots": [
+    {
+      "id": 1,
+      "voiceover": "今天体验的人生副本是：自助餐成瘾者回本哥的人生。",
+      "visual": "他站在自助餐门口，像要参加一场命运审判。",
+      "punch": "副本开启",
+      "image_prompt": "2D Chinese internet explainer animation, thick black outline, faceless white round head character, buffet entrance, high saturation",
+      "video_prompt": "dramatic push in, sign lights up"
+    },
+    {
+      "id": 2,
+      "voiceover": "他的天赋很简单：看一眼价格，就能自动换算成多少只虾。",
+      "visual": "价格牌变成巨大的虾子计数器，数字疯狂跳动。",
+      "punch": "价格=虾",
+      "image_prompt": "faceless white character, price tag turns into shrimp counter, flat 2D animation style",
+      "video_prompt": "numbers pop up, quick zoom"
+    },
+    {
+      "id": 3,
+      "voiceover": "别人进店先找座位，他进店先扫描蛋白质密度。",
+      "visual": "主角拿着雷达一样的餐盘，锁定牛排、三文鱼和烤生蚝。",
+      "punch": "密度扫描",
+      "image_prompt": "buffet radar, steak salmon oysters, meme character, bold outlines",
+      "video_prompt": "radar sweep, target lock animation"
+    },
+    {
+      "id": 4,
+      "voiceover": "第一轮，他假装优雅。第二轮，他开始战术夹菜。",
+      "visual": "餐盘堆成小山，旁边出现作战路线图。",
+      "punch": "战术夹菜",
+      "image_prompt": "tactical buffet plate mountain, route map, Chinese explainer cartoon",
+      "video_prompt": "fast montage, plate stacking"
+    },
+    {
+      "id": 5,
+      "voiceover": "第三轮，他已经不是在吃饭，而是在和店家的成本模型对抗。",
+      "visual": "餐厅老板的成本公式浮在空中，主角举叉冲锋。",
+      "punch": "成本对抗",
+      "image_prompt": "cost formula battle, faceless character holding fork, high contrast 2D",
+      "video_prompt": "comic battle motion, formula shake"
+    },
+    {
+      "id": 6,
+      "voiceover": "他的胃发出警报，但他的大脑只显示四个字：还没回本。",
+      "visual": "胃部警报灯闪烁，脑袋上弹出红色提示框。",
+      "punch": "还没回本",
+      "image_prompt": "stomach alarm, warning icon, faceless white head character",
+      "video_prompt": "warning flash, slight camera shake"
+    },
+    {
+      "id": 7,
+      "voiceover": "服务员问他要不要甜品，他沉默三秒，说：甜品不算食物，算结算漏洞。",
+      "visual": "甜品区像游戏漏洞入口一样发光。",
+      "punch": "结算漏洞",
+      "image_prompt": "dessert portal glitch, buffet dessert table, flat vector animation",
+      "video_prompt": "glitch glow, portal pulse"
+    },
+    {
+      "id": 8,
+      "voiceover": "当他终于觉得自己赚了，手机健康软件弹出本日账单。",
+      "visual": "手机屏幕展示热量、血糖和步数欠款。",
+      "punch": "健康账单",
+      "image_prompt": "phone health bill, calories and warning icons, no readable text",
+      "video_prompt": "phone screen zoom, notification pop"
+    },
+    {
+      "id": 9,
+      "voiceover": "他回本了二十八块，却透支了未来三天的精神状态。",
+      "visual": "主角瘫在椅子上，灵魂从身体里飘出一点点。",
+      "punch": "赚28亏3天",
+      "image_prompt": "exhausted faceless character, soul drifting out, comic style",
+      "video_prompt": "slow drift, fade out"
+    },
+    {
+      "id": 10,
+      "voiceover": "系统评价：你没有战胜自助餐，你只是成为了它的复购用户。",
+      "visual": "结算面板打出评级，主角被会员卡光环笼罩。",
+      "punch": "复购用户",
+      "image_prompt": "game result panel, membership card halo, 2D Chinese internet animation",
+      "video_prompt": "final result card, halo glow"
+    }
+  ]
+}
