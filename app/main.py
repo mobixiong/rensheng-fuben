@@ -83,6 +83,10 @@ class RenderRequest(BaseModel):
     project_id: str | None = None
 
 
+class ProjectActivateRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+
+
 def _slug(value: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", value).strip()
     cleaned = re.sub(r"\s+", "_", cleaned)
@@ -91,8 +95,8 @@ def _slug(value: str) -> str:
 
 def _safe_project_id(value: Any, topic: str = "") -> str:
     raw = str(value or "").strip()
-    if raw and "/" not in raw and "\\" not in raw and ".." not in raw and ":" not in raw:
-        return _slug(raw)
+    if raw and not re.search(r'[<>:"/\\|?*\x00-\x1f]', raw) and ".." not in raw:
+        return raw[:120]
     return f"{time.strftime('%Y%m%d_%H%M%S')}_{_slug(topic)}_{uuid.uuid4().hex[:6]}"
 
 
@@ -177,6 +181,37 @@ def _write_project_files(state: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _read_project_state(project_id: str) -> dict[str, Any]:
+    safe_id = _safe_project_id(project_id)
+    state_path = _project_dir(safe_id) / "state.json"
+    if not state_path.exists():
+        raise FileNotFoundError(safe_id)
+    return json.loads(state_path.read_text(encoding="utf-8"))
+
+
+def _project_summary(project_dir: Path) -> dict[str, Any] | None:
+    if not project_dir.is_dir():
+        return None
+    state_path = project_dir / "state.json"
+    metadata_path = project_dir / "metadata.json"
+    source = metadata_path if metadata_path.exists() else state_path
+    if not source.exists():
+        return None
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    project_id = project_dir.name
+    topic = str(data.get("topic") or project_id)
+    saved_at = str(data.get("saved_at") or "")
+    return {
+        "project_id": project_id,
+        "topic": topic,
+        "saved_at": saved_at,
+        "project_url": f"/workspace/projects/{project_id}",
+    }
+
+
 app = FastAPI(title="人生副本工作台", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -212,7 +247,7 @@ def project_current() -> dict[str, Any]:
                 pass
         return {"exists": False}
     try:
-        active = json.loads(ACTIVE_PROJECT.read_text(encoding="utf-8"))
+        active = json.loads(ACTIVE_PROJECT.read_text(encoding="utf-8-sig"))
         project_id = _safe_project_id(active.get("project_id"))
         state_path = _project_dir(project_id) / "state.json"
         if not state_path.exists():
@@ -220,6 +255,37 @@ def project_current() -> dict[str, Any]:
         return {"exists": True, "state": json.loads(state_path.read_text(encoding="utf-8"))}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Project state is unreadable: {exc}") from exc
+
+
+@app.get("/api/projects")
+def projects_list() -> dict[str, Any]:
+    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    projects = [
+        item for item in (_project_summary(path) for path in PROJECTS_DIR.iterdir())
+        if item is not None
+    ]
+    projects.sort(key=lambda item: item.get("saved_at") or "", reverse=True)
+    active_id = ""
+    if ACTIVE_PROJECT.exists():
+        try:
+            active_id = str(json.loads(ACTIVE_PROJECT.read_text(encoding="utf-8-sig")).get("project_id") or "")
+        except Exception:
+            active_id = ""
+    return {"projects": projects, "active_project_id": active_id}
+
+
+@app.post("/api/project/activate")
+def project_activate(req: ProjectActivateRequest) -> dict[str, Any]:
+    try:
+        project_id = _safe_project_id(req.project_id)
+        state = _read_project_state(project_id)
+        ACTIVE_PROJECT.parent.mkdir(parents=True, exist_ok=True)
+        ACTIVE_PROJECT.write_text(json.dumps({"project_id": project_id}, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "project_id": project_id, "state": state}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Project not found: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Project activate failed: {exc}") from exc
 
 
 @app.post("/api/project/current")

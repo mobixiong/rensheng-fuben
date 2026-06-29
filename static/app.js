@@ -20,10 +20,12 @@ const textConnectionResult = $("textConnectionResult");
 const imageConnectionResult = $("imageConnectionResult");
 const projectLabel = $("projectLabel");
 const projectSaveMeta = $("projectSaveMeta");
+const projectPicker = $("projectPicker");
 const SETTINGS_KEY = "rensheng-fuben-settings";
 const GEMINI_WEB2API_DEFAULT_BASE_URL = "http://127.0.0.1:8081/v1";
 const GEMINI_WEB2API_DEFAULT_MODEL = "gemini-3.5-flash-thinking";
 const PROJECT_SAVE_DELAY_MS = 700;
+const IMAGE_RETRY_LIMIT = 2;
 
 let activeTab = "copy";
 let selectedShot = 0;
@@ -39,7 +41,7 @@ function setStatus(text, kind = "") {
 }
 
 function setBusy(busy) {
-  for (const id of ["loadExample", "generate", "generateCopy", "buildStoryboard", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt", "testTextConnection", "testImageConnection", "saveProject"]) {
+  for (const id of ["loadExample", "generate", "generateCopy", "buildStoryboard", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt", "testTextConnection", "testImageConnection", "saveProject", "newProject", "projectPicker"]) {
     const el = $(id);
     if (el) el.disabled = busy;
   }
@@ -106,6 +108,7 @@ function setTestResult(el, text, kind = "") {
 function setProjectMeta(label, detail = "") {
   if (projectLabel) projectLabel.textContent = label || "未保存项目";
   if (projectSaveMeta) projectSaveMeta.textContent = detail || "尚未保存";
+  if (projectPicker && currentProjectId) projectPicker.value = currentProjectId;
 }
 
 function openSettings() {
@@ -174,7 +177,9 @@ async function saveProjectNow() {
   try {
     const data = await postJson("/api/project/current", projectState());
     if (data.project_id) currentProjectId = data.project_id;
+    if (data.state) applyProjectState(data.state, {preserveTab: true, fromSave: true});
     setProjectMeta(currentProjectId, data.saved_at ? `已保存 ${data.saved_at}` : "已保存");
+    await loadProjectList();
     return data;
   } catch (err) {
     setProjectMeta(currentProjectId || "保存失败", "保存失败");
@@ -192,24 +197,21 @@ function mediaProjectId() {
   return currentProjectId ? `projects/${currentProjectId}` : "";
 }
 
-async function loadProjectState() {
-  const res = await fetch("/api/project/current");
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.exists || !data.state) return false;
-
+function applyProjectState(state, options = {}) {
   restoringProject = true;
-  const state = data.state;
-  currentProjectId = state.project_id || "";
-  setProjectMeta(currentProjectId, state.saved_at ? `已恢复 ${state.saved_at}` : "已恢复");
+  currentProjectId = state.project_id || currentProjectId || "";
+  setProjectMeta(currentProjectId, state.saved_at ? `${options.fromSave ? "已保存" : "已恢复"} ${state.saved_at}` : "已恢复");
   if (typeof state.topic === "string") $("topic").value = state.topic;
   if (typeof state.copy_text === "string") copyOutput.value = state.copy_text;
   if (typeof state.copy_prompt === "string") copyPrompt.value = state.copy_prompt;
   if (typeof state.image_prompt === "string") imagePrompt.value = state.image_prompt;
   if (typeof state.result_text === "string") resultEl.textContent = state.result_text;
-  selectedShot = Number.isInteger(state.selected_shot) ? state.selected_shot : 0;
+  selectedShot = Number.isInteger(state.selected_shot) ? state.selected_shot : selectedShot;
 
   if (state.story && typeof state.story === "object") {
-    writeStory(state.story);
+    editor.value = JSON.stringify(state.story, null, 2);
+    updateMeta();
+    renderShotGrid();
   } else if (typeof state.story_json === "string") {
     editor.value = state.story_json;
     updateMeta();
@@ -217,9 +219,65 @@ async function loadProjectState() {
   }
 
   updatePromptMeta();
-  setTab(["copy", "image", "video"].includes(state.active_tab) ? state.active_tab : "copy");
+  if (!options.preserveTab) {
+    setTab(["copy", "image", "video"].includes(state.active_tab) ? state.active_tab : "copy");
+  }
   restoringProject = false;
+}
+
+async function loadProjectList() {
+  if (!projectPicker) return;
+  const res = await fetch("/api/projects");
+  if (!res.ok) return;
+  const data = await res.json().catch(() => ({}));
+  const projects = Array.isArray(data.projects) ? data.projects : [];
+  projectPicker.innerHTML = '<option value="">未保存项目</option>' + projects.map((project) => {
+    const label = `${project.topic || project.project_id} ${project.saved_at ? "· " + project.saved_at : ""}`;
+    return `<option value="${escapeHtml(project.project_id)}">${escapeHtml(label)}</option>`;
+  }).join("");
+  projectPicker.value = currentProjectId || data.active_project_id || "";
+}
+
+async function loadProjectState() {
+  const res = await fetch("/api/project/current");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.exists || !data.state) return false;
+
+  applyProjectState(data.state);
   return true;
+}
+
+async function activateProject(projectId) {
+  if (!projectId) return;
+  setBusy(true);
+  setStatus("切换项目", "busy");
+  try {
+    const data = await postJson("/api/project/activate", {project_id: projectId});
+    applyProjectState(data.state || {});
+    await loadProjectList();
+    setStatus("就绪");
+  } catch (err) {
+    setStatus("出错", "error");
+    resultEl.textContent = String(err.message || err);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function newProject() {
+  currentProjectId = "";
+  selectedShot = 0;
+  $("topic").value = "新项目";
+  copyOutput.value = "";
+  resultEl.textContent = "{}";
+  editor.value = JSON.stringify({title: "", style_preset: "", shots: []}, null, 2);
+  updateMeta();
+  updatePromptMeta();
+  renderShotGrid();
+  setProjectMeta("未保存项目", "新项目");
+  if (projectPicker) projectPicker.value = "";
+  setTab("copy");
+  scheduleProjectSave();
 }
 
 function loadSettings() {
@@ -475,8 +533,35 @@ function mergeShotImageResult(targetStory, sourceStory, index) {
   for (const key of ["image_path", "image_url", "resolved_image_prompt"]) {
     if (sourceShot[key]) targetShot[key] = sourceShot[key];
   }
+  targetShot._image_status = "done";
+  delete targetShot._image_error;
   if (sourceStory.project_id) targetStory.project_id = sourceStory.project_id;
   return targetStory;
+}
+
+async function regenerateShotWithRetry(story, index) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= IMAGE_RETRY_LIMIT; attempt += 1) {
+    if (story.shots?.[index]) {
+      story.shots[index]._image_status = attempt === 0 ? "generating" : "retrying";
+      story.shots[index]._image_attempt = attempt + 1;
+      delete story.shots[index]._image_error;
+      writeStory(story);
+      await saveProjectNow();
+    }
+    try {
+      return await postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }, story));
+    } catch (err) {
+      lastError = err;
+      if (attempt < IMAGE_RETRY_LIMIT && story.shots?.[index]) {
+        story.shots[index]._image_status = "retrying";
+        story.shots[index]._image_error = String(err.message || err);
+        writeStory(story);
+        await saveProjectNow();
+      }
+    }
+  }
+  throw lastError;
 }
 
 async function generateImagesParallel() {
@@ -493,12 +578,16 @@ async function generateImagesParallel() {
     story = {
       ...story,
       project_id: mediaProjectId() || story.project_id || createImageProjectId(),
+      shots: shots.map((shot) => ({
+        ...shot,
+        _image_status: shot.image_url || shot.image_path ? "done" : "generating",
+      })),
     };
     writeStory(story);
 
     let completed = 0;
-    const tasks = shots.map((_, index) =>
-      postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }, story))
+    const tasks = story.shots.map((_, index) =>
+      regenerateShotWithRetry(story, index)
         .then(async (data) => {
           story = mergeShotImageResult(story, data, index);
           completed += 1;
@@ -513,6 +602,15 @@ async function generateImagesParallel() {
           setStatus(`生图 ${completed}/${shots.length}`, "busy");
           await saveProjectNow();
           return data;
+        })
+        .catch(async (err) => {
+          if (story.shots?.[index]) {
+            story.shots[index]._image_status = "error";
+            story.shots[index]._image_error = String(err.message || err);
+            writeStory(story);
+            await saveProjectNow();
+          }
+          throw err;
         })
     );
 
@@ -550,11 +648,16 @@ async function generateImages() {
     story = {
       ...story,
       project_id: mediaProjectId() || story.project_id || createImageProjectId(),
+      shots: shots.map((shot) => ({
+        ...shot,
+        _image_status: shot.image_url || shot.image_path ? "done" : "pending",
+      })),
     };
     writeStory(story);
     for (let index = 0; index < shots.length; index += 1) {
       setStatus(`生图 ${index + 1}/${shots.length}`, "busy");
-      story = await postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }, story));
+      const data = await regenerateShotWithRetry(story, index);
+      story = mergeShotImageResult(story, data, index);
       writeStory(story);
       resultEl.textContent = JSON.stringify({
         "图片生成": "进行中",
@@ -590,8 +693,9 @@ async function redrawShot(index) {
       story = {...story, project_id: mediaProjectId() || createImageProjectId()};
       writeStory(story);
     }
-    const data = await postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }, story));
-    writeStory(data);
+    const data = await regenerateShotWithRetry(story, index);
+    story = mergeShotImageResult(story, data, index);
+    writeStory(story);
     resultEl.textContent = JSON.stringify({
       "重抽": "完成",
       "镜头": index + 1,
@@ -658,6 +762,14 @@ async function renderVideo() {
 
 function shotImageSrc(shot) {
   if (shot.image_url) return `${shot.image_url}?v=${Date.now()}`;
+  if (shot.image_path) {
+    const normalized = String(shot.image_path).replaceAll("\\", "/");
+    const marker = "/workspace/";
+    const index = normalized.toLowerCase().lastIndexOf(marker);
+    if (index >= 0) {
+      return `/workspace/${normalized.slice(index + marker.length)}?v=${Date.now()}`;
+    }
+  }
   return "";
 }
 
@@ -675,9 +787,18 @@ function renderShotGrid() {
   selectedShotLabel.textContent = shots[selectedShot] ? `选中镜头 ${selectedShot + 1}` : "未选择镜头";
   shotGrid.innerHTML = shots.map((shot, index) => {
     const src = shotImageSrc(shot);
+    const status = shot._image_status || "";
+    const placeholderText = status === "generating"
+      ? "生成中"
+      : status === "retrying"
+        ? `重试中 ${shot._image_attempt || ""}`
+      : status === "error"
+        ? "生成失败"
+        : "等待生成";
+    const placeholderClass = status === "generating" || status === "retrying" ? " generating" : status === "error" ? " error" : "";
     const thumb = src
       ? `<img src="${src}" alt="镜头 ${index + 1}" />`
-      : `<div class="shot-placeholder">镜头 ${index + 1}<br />等待生成</div>`;
+      : `<div class="shot-placeholder${placeholderClass}">镜头 ${index + 1}<br />${placeholderText}</div>`;
     const selected = index === selectedShot ? " selected" : "";
     const punch = shot.punch || shot.keyword || `镜头 ${index + 1}`;
     const voiceover = shot.voiceover || "";
@@ -735,6 +856,10 @@ $("saveProject").addEventListener("click", async () => {
   setStatus("保存中", "busy");
   await saveProjectNow();
   setStatus("就绪");
+});
+$("newProject").addEventListener("click", newProject);
+projectPicker.addEventListener("change", () => {
+  if (projectPicker.value) activateProject(projectPicker.value);
 });
 $("openSettings").addEventListener("click", openSettings);
 $("closeSettings").addEventListener("click", closeSettings);
@@ -800,4 +925,5 @@ loadPromptDefaults()
     setStatus("就绪");
     return null;
   })
+  .then(() => loadProjectList())
   .catch(() => setStatus("就绪"));

@@ -15,6 +15,7 @@
 - 高级分镜数据：默认示例读取 `examples/buffet_story.json`
 - 仅用主题生成分镜：默认读取 `prompts/story_shots.md`
 - 图片批量生成和单张重抽
+- 图片失败自动重试，并在分镜卡片显示生成中、重试中、失败状态
 - Edge TTS 配音
 - SRT/ASS 字幕
 - FFmpeg 合成竖屏 MP4
@@ -96,6 +97,8 @@ subtitle.srt
 ```
 
 刷新页面后会优先恢复当前项目。
+顶部项目选择器可以切换已有项目，“新建项目”会创建一个新的当前项目。
+图片生成完成后会回填到当前项目的 `story.json` 和 `images/` 目录。
 
 ## Gemini Web2API
 
@@ -202,8 +205,10 @@ Authorization: Bearer {IMAGE_API_KEY}
 
 ```text
 GET  /api/example
+GET  /api/projects
 GET  /api/project/current
 POST /api/project/current
+POST /api/project/activate
 GET  /api/prompt/default
 GET  /api/prompt/image
 POST /api/text/generate-copy
