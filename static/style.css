@@ -213,15 +213,49 @@ summary:focus-visible {
 
 .topic-bar {
   min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(260px, 680px) auto;
+  align-items: end;
+  gap: 16px;
   padding: 18px 24px 0;
+}
+
+.project-card {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 10px 26px rgba(20, 31, 51, 0.05);
+}
+
+.project-card span,
+.project-card em {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topic-field {
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(240px, 680px);
-  align-items: center;
-  justify-content: start;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
   gap: 12px;
   color: var(--ink);
   font-size: 14px;
@@ -907,6 +941,7 @@ pre {
   }
 
   .topic-bar {
+    grid-template-columns: 1fr;
     padding: 16px 16px 0;
   }
 

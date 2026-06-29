@@ -18,14 +18,20 @@ const settingsDrawer = $("settingsDrawer");
 const settingsBackdrop = $("settingsBackdrop");
 const textConnectionResult = $("textConnectionResult");
 const imageConnectionResult = $("imageConnectionResult");
+const projectLabel = $("projectLabel");
+const projectSaveMeta = $("projectSaveMeta");
 const SETTINGS_KEY = "rensheng-fuben-settings";
 const GEMINI_WEB2API_DEFAULT_BASE_URL = "http://127.0.0.1:8081/v1";
 const GEMINI_WEB2API_DEFAULT_MODEL = "gemini-3.5-flash-thinking";
+const PROJECT_SAVE_DELAY_MS = 700;
 
 let activeTab = "copy";
 let selectedShot = 0;
 let defaultCopyPrompt = "";
 let defaultImagePrompt = "";
+let saveTimer = 0;
+let restoringProject = false;
+let currentProjectId = "";
 
 function setStatus(text, kind = "") {
   statusEl.textContent = text;
@@ -33,7 +39,7 @@ function setStatus(text, kind = "") {
 }
 
 function setBusy(busy) {
-  for (const id of ["loadExample", "generate", "generateCopy", "buildStoryboard", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt", "testTextConnection", "testImageConnection"]) {
+  for (const id of ["loadExample", "generate", "generateCopy", "buildStoryboard", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt", "testTextConnection", "testImageConnection", "saveProject"]) {
     const el = $(id);
     if (el) el.disabled = busy;
   }
@@ -47,6 +53,7 @@ function writeStory(obj) {
   editor.value = JSON.stringify(obj, null, 2);
   updateMeta();
   renderShotGrid();
+  scheduleProjectSave();
 }
 
 function updateMeta() {
@@ -96,6 +103,11 @@ function setTestResult(el, text, kind = "") {
   el.className = `test-result ${kind}`.trim();
 }
 
+function setProjectMeta(label, detail = "") {
+  if (projectLabel) projectLabel.textContent = label || "未保存项目";
+  if (projectSaveMeta) projectSaveMeta.textContent = detail || "尚未保存";
+}
+
 function openSettings() {
   settingsBackdrop.hidden = false;
   settingsDrawer.classList.add("open");
@@ -114,15 +126,100 @@ function persistSettings() {
     textProvider: $("textProvider").value,
     baseUrl: $("baseUrl").value,
     model: $("model").value,
+    apiKey: $("apiKey").value,
     imageProvider: $("imageProvider").value,
     imageBaseUrl: $("imageBaseUrl").value,
     imageModel: $("imageModel").value,
+    imageApiKey: $("imageApiKey").value,
     imageSize: $("imageSize").value,
     voice: $("voice").value,
     rate: $("rate").value,
     copyPrompt: copyPrompt.value,
     imagePrompt: imagePrompt.value,
   }));
+}
+
+function readStoryOrNull() {
+  try {
+    return readStory();
+  } catch {
+    return null;
+  }
+}
+
+function projectState() {
+  return {
+    version: 1,
+    project_id: currentProjectId,
+    topic: $("topic").value,
+    active_tab: activeTab,
+    selected_shot: selectedShot,
+    copy_text: copyOutput.value,
+    story_json: editor.value,
+    story: readStoryOrNull(),
+    result_text: resultEl.textContent,
+    copy_prompt: copyPrompt.value,
+    image_prompt: imagePrompt.value,
+  };
+}
+
+function scheduleProjectSave() {
+  if (restoringProject) return;
+  clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(saveProjectNow, PROJECT_SAVE_DELAY_MS);
+}
+
+async function saveProjectNow() {
+  if (restoringProject) return;
+  try {
+    const data = await postJson("/api/project/current", projectState());
+    if (data.project_id) currentProjectId = data.project_id;
+    setProjectMeta(currentProjectId, data.saved_at ? `已保存 ${data.saved_at}` : "已保存");
+    return data;
+  } catch (err) {
+    setProjectMeta(currentProjectId || "保存失败", "保存失败");
+    console.warn("Project autosave failed", err);
+    return null;
+  }
+}
+
+async function ensureProjectSaved() {
+  const data = await saveProjectNow();
+  return data?.project_id || currentProjectId;
+}
+
+function mediaProjectId() {
+  return currentProjectId ? `projects/${currentProjectId}` : "";
+}
+
+async function loadProjectState() {
+  const res = await fetch("/api/project/current");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.exists || !data.state) return false;
+
+  restoringProject = true;
+  const state = data.state;
+  currentProjectId = state.project_id || "";
+  setProjectMeta(currentProjectId, state.saved_at ? `已恢复 ${state.saved_at}` : "已恢复");
+  if (typeof state.topic === "string") $("topic").value = state.topic;
+  if (typeof state.copy_text === "string") copyOutput.value = state.copy_text;
+  if (typeof state.copy_prompt === "string") copyPrompt.value = state.copy_prompt;
+  if (typeof state.image_prompt === "string") imagePrompt.value = state.image_prompt;
+  if (typeof state.result_text === "string") resultEl.textContent = state.result_text;
+  selectedShot = Number.isInteger(state.selected_shot) ? state.selected_shot : 0;
+
+  if (state.story && typeof state.story === "object") {
+    writeStory(state.story);
+  } else if (typeof state.story_json === "string") {
+    editor.value = state.story_json;
+    updateMeta();
+    renderShotGrid();
+  }
+
+  updatePromptMeta();
+  setTab(["copy", "image", "video"].includes(state.active_tab) ? state.active_tab : "copy");
+  restoringProject = false;
+  return true;
 }
 
 function loadSettings() {
@@ -132,10 +229,12 @@ function loadSettings() {
     if (s.topic) $("topic").value = s.topic;
     $("baseUrl").value = s.baseUrl || "";
     $("model").value = s.model || "";
+    $("apiKey").value = s.apiKey || "";
     $("imageProvider").value = s.imageProvider === "openai" ? s.imageProvider : "openai";
     $("imageBaseUrl").value = s.imageBaseUrl || "";
     $("imageModel").value = s.imageModel || "";
-    $("imageSize").value = s.imageSize || "1024x1792";
+    $("imageApiKey").value = s.imageApiKey || "";
+    $("imageSize").value = ["9:16", "1:1", "16:9"].includes(s.imageSize) ? s.imageSize : "9:16";
     $("voice").value = s.voice || "zh-CN-YunxiNeural";
     $("rate").value = s.rate || "+12%";
     if (s.copyPrompt) copyPrompt.value = s.copyPrompt;
@@ -218,18 +317,18 @@ function imageConnectionPayload() {
     base_url: $("imageBaseUrl").value.trim(),
     model: $("imageModel").value.trim(),
     api_key: $("imageApiKey").value.trim(),
-    size: $("imageSize").value.trim() || "1024x1792",
+    size: $("imageSize").value.trim() || "9:16",
   };
 }
 
-function imagePayload(extra = {}) {
+function imagePayload(extra = {}, storyOverride = null) {
   return {
-    story: readStory(),
+    story: storyOverride || readStory(),
     provider: $("imageProvider").value,
     base_url: $("imageBaseUrl").value.trim(),
     model: $("imageModel").value.trim(),
     api_key: $("imageApiKey").value.trim(),
-    size: $("imageSize").value.trim() || "1024x1792",
+    size: $("imageSize").value.trim() || "9:16",
     fixed_prompt: imagePrompt.value,
     ...extra,
   };
@@ -287,6 +386,7 @@ async function loadExample() {
   setStatus("加载中", "busy");
   const res = await fetch("/api/example");
   writeStory(await res.json());
+  scheduleProjectSave();
   setStatus("就绪");
 }
 
@@ -298,6 +398,7 @@ async function generateStory() {
     const data = await postJson("/api/text/generate", storyPayload());
     writeStory(data);
     resultEl.textContent = JSON.stringify({ "分镜生成": "完成", "镜头数": data.shots?.length || 0 }, null, 2);
+    await saveProjectNow();
     setStatus("就绪");
     setTab("image");
   } catch (err) {
@@ -326,6 +427,7 @@ async function generateCopy() {
       "字数": copyOutput.value.length,
       "镜头数": story.shots?.length || 0,
     }, null, 2);
+    await saveProjectNow();
     setStatus("就绪");
     setTab("image");
   } catch (err) {
@@ -349,8 +451,83 @@ async function buildStoryboardFromCopy() {
       "分镜拆分": "完成",
       "镜头数": story.shots?.length || 0,
     }, null, 2);
+    await saveProjectNow();
     setStatus("就绪");
     setTab("image");
+  } catch (err) {
+    setStatus("出错", "error");
+    resultEl.textContent = String(err.message || err);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function createImageProjectId() {
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  const rand = Math.random().toString(16).slice(2, 10);
+  return `img_${stamp}_${rand}`;
+}
+
+function mergeShotImageResult(targetStory, sourceStory, index) {
+  const sourceShot = sourceStory?.shots?.[index];
+  const targetShot = targetStory?.shots?.[index];
+  if (!sourceShot || !targetShot) return targetStory;
+  for (const key of ["image_path", "image_url", "resolved_image_prompt"]) {
+    if (sourceShot[key]) targetShot[key] = sourceShot[key];
+  }
+  if (sourceStory.project_id) targetStory.project_id = sourceStory.project_id;
+  return targetStory;
+}
+
+async function generateImagesParallel() {
+  persistSettings();
+  setBusy(true);
+  setStatus("并行生图", "busy");
+  try {
+    await ensureProjectSaved();
+    let story = readStory();
+    const shots = story.shots || [];
+    if (!Array.isArray(shots) || shots.length === 0) {
+      throw new Error("分镜列表为空");
+    }
+    story = {
+      ...story,
+      project_id: mediaProjectId() || story.project_id || createImageProjectId(),
+    };
+    writeStory(story);
+
+    let completed = 0;
+    const tasks = shots.map((_, index) =>
+      postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }, story))
+        .then(async (data) => {
+          story = mergeShotImageResult(story, data, index);
+          completed += 1;
+          writeStory(story);
+          resultEl.textContent = JSON.stringify({
+            "图片生成": "并行进行中",
+            "已完成": completed,
+            "总镜头数": shots.length,
+            "最近完成镜头": index + 1,
+            "项目编号": story.project_id,
+          }, null, 2);
+          setStatus(`生图 ${completed}/${shots.length}`, "busy");
+          await saveProjectNow();
+          return data;
+        })
+    );
+
+    const results = await Promise.allSettled(tasks);
+    const failed = results.filter((item) => item.status === "rejected");
+    if (failed.length) {
+      throw new Error(`并行生图完成 ${completed}/${shots.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
+    }
+
+    resultEl.textContent = JSON.stringify({
+      "图片生成": "完成",
+      "项目编号": story.project_id,
+      "镜头数": story.shots?.length || 0,
+    }, null, 2);
+    setStatus("就绪");
   } catch (err) {
     setStatus("出错", "error");
     resultEl.textContent = String(err.message || err);
@@ -364,12 +541,33 @@ async function generateImages() {
   setBusy(true);
   setStatus("生图中", "busy");
   try {
-    const data = await postJson("/api/image/generate-story", imagePayload());
-    writeStory(data);
+    await ensureProjectSaved();
+    let story = readStory();
+    const shots = story.shots || [];
+    if (!Array.isArray(shots) || shots.length === 0) {
+      throw new Error("分镜列表为空");
+    }
+    story = {
+      ...story,
+      project_id: mediaProjectId() || story.project_id || createImageProjectId(),
+    };
+    writeStory(story);
+    for (let index = 0; index < shots.length; index += 1) {
+      setStatus(`生图 ${index + 1}/${shots.length}`, "busy");
+      story = await postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }, story));
+      writeStory(story);
+      resultEl.textContent = JSON.stringify({
+        "图片生成": "进行中",
+        "当前镜头": index + 1,
+        "总镜头数": shots.length,
+        "项目编号": story.project_id,
+      }, null, 2);
+      await saveProjectNow();
+    }
     resultEl.textContent = JSON.stringify({
       "图片生成": "完成",
-      "项目编号": data.project_id,
-      "镜头数": data.shots?.length || 0,
+      "项目编号": story.project_id,
+      "镜头数": story.shots?.length || 0,
     }, null, 2);
     setStatus("就绪");
   } catch (err) {
@@ -386,7 +584,13 @@ async function redrawShot(index) {
   setBusy(true);
   setStatus("重抽中", "busy");
   try {
-    const data = await postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }));
+    await ensureProjectSaved();
+    let story = readStory();
+    if (!story.project_id) {
+      story = {...story, project_id: mediaProjectId() || createImageProjectId()};
+      writeStory(story);
+    }
+    const data = await postJson("/api/image/regenerate-shot", imagePayload({ shot_index: index }, story));
     writeStory(data);
     resultEl.textContent = JSON.stringify({
       "重抽": "完成",
@@ -431,15 +635,18 @@ async function renderVideo() {
   openVideo.hidden = true;
   preview.removeAttribute("src");
   try {
+    await ensureProjectSaved();
     const data = await postJson("/api/render", {
       story: readStory(),
       voice: $("voice").value,
       rate: $("rate").value,
+      project_id: mediaProjectId(),
     });
     resultEl.textContent = JSON.stringify(data, null, 2);
     preview.src = data.video;
     openVideo.href = data.video;
     openVideo.hidden = false;
+    await saveProjectNow();
     setStatus("完成");
   } catch (err) {
     setStatus("出错", "error");
@@ -519,11 +726,16 @@ $("loadExample").addEventListener("click", loadExample);
 $("generate").addEventListener("click", generateStory);
 $("generateCopy").addEventListener("click", generateCopy);
 $("buildStoryboard").addEventListener("click", buildStoryboardFromCopy);
-$("generateImages").addEventListener("click", generateImages);
+$("generateImages").addEventListener("click", generateImagesParallel);
 $("redrawSelected").addEventListener("click", () => redrawShot(selectedShot));
 $("refreshGallery").addEventListener("click", renderShotGrid);
 $("validate").addEventListener("click", validateJson);
 $("render").addEventListener("click", renderVideo);
+$("saveProject").addEventListener("click", async () => {
+  setStatus("保存中", "busy");
+  await saveProjectNow();
+  setStatus("就绪");
+});
 $("openSettings").addEventListener("click", openSettings);
 $("closeSettings").addEventListener("click", closeSettings);
 $("settingsBackdrop").addEventListener("click", closeSettings);
@@ -533,29 +745,43 @@ $("resetCopyPrompt").addEventListener("click", () => {
   copyPrompt.value = defaultCopyPrompt;
   persistSettings();
   updatePromptMeta();
+  scheduleProjectSave();
 });
 $("resetImagePrompt").addEventListener("click", () => {
   imagePrompt.value = defaultImagePrompt;
   persistSettings();
   updatePromptMeta();
+  scheduleProjectSave();
 });
 editor.addEventListener("input", () => {
   updateMeta();
   if (activeTab === "image") renderShotGrid();
+  scheduleProjectSave();
 });
 copyPrompt.addEventListener("input", () => {
   persistSettings();
   updatePromptMeta();
+  scheduleProjectSave();
 });
-copyOutput.addEventListener("input", updatePromptMeta);
+copyOutput.addEventListener("input", () => {
+  updatePromptMeta();
+  scheduleProjectSave();
+});
 imagePrompt.addEventListener("input", () => {
   persistSettings();
   updatePromptMeta();
+  scheduleProjectSave();
 });
-$("topic").addEventListener("input", persistSettings);
+$("topic").addEventListener("input", () => {
+  persistSettings();
+  scheduleProjectSave();
+});
 
-for (const id of ["textProvider", "baseUrl", "model", "imageProvider", "imageBaseUrl", "imageModel", "imageSize", "voice", "rate"]) {
+for (const id of ["textProvider", "baseUrl", "model", "apiKey", "imageProvider", "imageBaseUrl", "imageModel", "imageApiKey", "imageSize", "voice", "rate"]) {
   $(id).addEventListener("change", persistSettings);
+}
+for (const id of ["apiKey", "imageApiKey"]) {
+  $(id).addEventListener("input", persistSettings);
 }
 $("textProvider").addEventListener("change", () => {
   applyTextProviderDefaults();
@@ -566,5 +792,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 loadSettings();
-loadPromptDefaults().catch(() => updatePromptMeta());
-loadExample().catch(() => setStatus("就绪"));
+loadPromptDefaults()
+  .catch(() => updatePromptMeta())
+  .then(() => loadProjectState())
+  .then((restored) => {
+    if (!restored) return loadExample();
+    setStatus("就绪");
+    return null;
+  })
+  .catch(() => setStatus("就绪"));

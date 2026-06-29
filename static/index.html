@@ -25,11 +25,17 @@
       </header>
 
       <main class="workspace">
-        <section class="topic-bar" aria-label="主题">
+        <section class="topic-bar" aria-label="项目">
+          <div class="project-card">
+            <span>当前项目</span>
+            <strong id="projectLabel">未保存项目</strong>
+            <em id="projectSaveMeta">尚未保存</em>
+          </div>
           <label class="topic-field">
             <span>主题</span>
             <input id="topic" value="自助餐成瘾者回本哥的人生" />
           </label>
+          <button id="saveProject" class="secondary-pill" type="button">保存项目</button>
         </section>
 
         <section class="stage">
@@ -205,7 +211,11 @@
               </label>
               <label class="field">
                 <span>图片尺寸</span>
-                <input id="imageSize" value="1024x1792" />
+                <select id="imageSize">
+                  <option value="9:16" selected>9:16 竖屏</option>
+                  <option value="1:1">1:1 正方形</option>
+                  <option value="16:9">16:9 横屏</option>
+                </select>
               </label>
               <label class="field wide-field">
                 <span>模型</span>

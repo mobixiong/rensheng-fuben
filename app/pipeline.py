@@ -253,6 +253,16 @@ def _final(video: Path, audio: Path, ass: Path, out_path: Path, duration: float)
     ])
 
 
+def _workspace_project_id(value: str | None) -> str:
+    raw = str(value or "").strip().replace("\\", "/").strip("/")
+    if not raw:
+        return ""
+    parts = [part for part in raw.split("/") if part]
+    if any(part in {".", ".."} or ":" in part for part in parts):
+        raise RenderError("Invalid project_id")
+    return "/".join(parts)
+
+
 def normalize_story(story: dict[str, Any]) -> dict[str, Any]:
     title = str(story.get("title") or "人生副本样片")
     shots = story.get("shots") or []
@@ -277,8 +287,8 @@ def normalize_story(story: dict[str, Any]) -> dict[str, Any]:
     return {"title": title, "style_preset": str(story.get("style_preset") or DEFAULT_STYLE), "shots": normalized}
 
 
-def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: str = "+12%") -> dict[str, Any]:
-    project_id = time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
+def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: str = "+12%", project_id: str | None = None) -> dict[str, Any]:
+    project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
     project_dir = WORKSPACE / project_id
     assets = project_dir / "assets"
     clips_dir = project_dir / "clips"

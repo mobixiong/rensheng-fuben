@@ -71,6 +71,32 @@ Authorization: Bearer {LLM_API_KEY}
 
 高级区里的“分镜数据”是内部中间数据，用于承接图片和视频流程。通常不需要手写；如果要重新拆分已有口播，可以点“由口播拆分镜”。
 
+## 项目保存
+
+工作台会在外层维护一个当前项目。点击“保存项目”或生成口播、分镜、图片、视频后，会写入：
+
+```text
+workspace/projects/{项目ID}/
+```
+
+常用文件包括：
+
+```text
+state.json
+metadata.json
+copy.txt
+story.json
+result.txt
+prompts/copy_prompt.txt
+prompts/image_prompt.txt
+images/
+final.mp4
+voice.mp3
+subtitle.srt
+```
+
+刷新页面后会优先恢复当前项目。
+
 ## Gemini Web2API
 
 Gemini 文本走 `gemini-web2api`，它本身提供 OpenAI-compatible API。
@@ -131,6 +157,14 @@ Authorization: Bearer {IMAGE_API_KEY}
 - `data[0].url`
 - `data[0].b64_json`
 
+尺寸使用比例字符串，不固定写像素：
+
+```text
+9:16  竖屏，默认，适合短视频
+1:1   正方形
+16:9  横屏
+```
+
 生成图片后，工作台会把每个 shot 更新为：
 
 ```json
@@ -168,6 +202,8 @@ Authorization: Bearer {IMAGE_API_KEY}
 
 ```text
 GET  /api/example
+GET  /api/project/current
+POST /api/project/current
 GET  /api/prompt/default
 GET  /api/prompt/image
 POST /api/text/generate-copy

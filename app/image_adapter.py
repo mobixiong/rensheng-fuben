@@ -25,7 +25,7 @@ class ImageConfig:
     base_url: str = ""
     api_key: str = ""
     model: str = ""
-    size: str = "1024x1792"
+    size: str = "9:16"
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "ImageConfig":
@@ -34,7 +34,7 @@ class ImageConfig:
             base_url=(payload.get("base_url") or os.getenv("IMAGE_BASE_URL") or "").strip(),
             api_key=(payload.get("api_key") or os.getenv("IMAGE_API_KEY") or "").strip(),
             model=(payload.get("model") or os.getenv("IMAGE_MODEL") or "").strip(),
-            size=(payload.get("size") or os.getenv("IMAGE_SIZE") or "1024x1792").strip(),
+            size=(payload.get("size") or os.getenv("IMAGE_SIZE") or "9:16").strip(),
         )
 
 
@@ -54,6 +54,16 @@ def build_shot_image_prompt(story: dict[str, Any], shot: dict[str, Any], fixed_p
         f"补充提示词：{shot.get('image_prompt', '')}",
         "请生成一张竖屏9:16分镜图。画面中不要出现可读文字、字幕、Logo、水印、二维码、品牌名或界面文字。",
     ])
+
+
+def _workspace_project_id(value: Any) -> str:
+    raw = str(value or "").strip().replace("\\", "/").strip("/")
+    if not raw or raw == "images":
+        return ""
+    parts = [part for part in raw.split("/") if part]
+    if any(part in {".", ".."} or ":" in part for part in parts):
+        return ""
+    return "/".join(parts)
 
 
 def _endpoint(base_url: str) -> str:
@@ -122,8 +132,8 @@ def generate_image(prompt: str, cfg: ImageConfig, out_path: Path) -> None:
 
 
 def generate_story_images(story: dict[str, Any], cfg: ImageConfig, fixed_prompt: str | None = None) -> dict[str, Any]:
-    project_id = story.get("project_id") if isinstance(story.get("project_id"), str) else "images"
-    if not project_id or project_id == "images":
+    project_id = _workspace_project_id(story.get("project_id"))
+    if not project_id:
         project_id = time.strftime("img_%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
     image_dir = WORKSPACE / project_id / "images"
     shots = story.get("shots") or []
@@ -150,7 +160,7 @@ def generate_one_story_image(story: dict[str, Any], shot_index: int, cfg: ImageC
     if shot_index < 0 or shot_index >= len(shots):
         raise ImageError("shot_index out of range")
 
-    project_id = story.get("project_id") if isinstance(story.get("project_id"), str) else ""
+    project_id = _workspace_project_id(story.get("project_id"))
     if not project_id:
         project_id = time.strftime("img_%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
     image_dir = WORKSPACE / project_id / "images"
