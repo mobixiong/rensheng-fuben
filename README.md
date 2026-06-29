@@ -33,6 +33,20 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 7860
 http://127.0.0.1:7860
 ```
 
+## 本地自检
+
+启动服务后可以跑 smoke check，确认接口、项目恢复、前端模块加载、分镜渲染和已有图片 URL 是否正常：
+
+```bash
+python scripts/smoke_check.py
+```
+
+如果 `.env` 里已经配置好文案和图片模型，也可以同时测试外部连接：
+
+```bash
+python scripts/smoke_check.py --external
+```
+
 ## 环境要求
 
 - Python 3.10+
