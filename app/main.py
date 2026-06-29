@@ -6,8 +6,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images
-from .llm_adapter import LLMConfig, LLMError, generate_story, generate_story_from_copy, generate_text
+from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images, test_image_connection
+from .llm_adapter import LLMConfig, LLMError, generate_story, generate_story_from_copy, generate_text, test_text_connection
 from .pipeline import ROOT, WORKSPACE, RenderError, render_story
 
 
@@ -37,6 +37,14 @@ class CopyToStoryRequest(GenerateRequest):
     copy_text: str = Field(min_length=1)
 
 
+class TextConnectionRequest(BaseModel):
+    provider: str = "openai"
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    temperature: float = 0
+
+
 class ImageGenerateRequest(BaseModel):
     story: dict[str, Any]
     provider: str = "openai"
@@ -49,6 +57,14 @@ class ImageGenerateRequest(BaseModel):
 
 class ImageRegenerateRequest(ImageGenerateRequest):
     shot_index: int = Field(ge=0)
+
+
+class ImageConnectionRequest(BaseModel):
+    provider: str = "openai"
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    size: str = "1024x1792"
 
 
 class RenderRequest(BaseModel):
@@ -102,6 +118,22 @@ def text_generate_copy(req: GenerateRequest) -> dict[str, str]:
         text = generate_text(req.topic, LLMConfig.from_payload(req.model_dump()), req.system_prompt)
         return {"topic": req.topic, "text": text}
     except LLMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/settings/test-text")
+def settings_test_text(req: TextConnectionRequest) -> dict[str, Any]:
+    try:
+        return test_text_connection(LLMConfig.from_payload(req.model_dump()))
+    except LLMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/settings/test-image")
+def settings_test_image(req: ImageConnectionRequest) -> dict[str, Any]:
+    try:
+        return test_image_connection(ImageConfig.from_payload(req.model_dump()))
+    except ImageError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

@@ -8,124 +8,38 @@
   </head>
   <body>
     <div class="app-frame">
-      <nav class="global-nav">
-        <div class="brand-mark">人生副本</div>
-        <div class="global-nav-links">
-          <span>文案</span>
-          <span>图片</span>
-          <span>视频</span>
+      <header class="app-header">
+        <div class="brand-block">
+          <div class="brand-mark">人生副本</div>
+          <div class="brand-subtitle">短视频生成工作台</div>
         </div>
-        <div class="status-pill" id="status">就绪</div>
-      </nav>
-
-      <header class="sub-nav">
-        <div>
-          <div class="product-name">人生副本工作台</div>
-          <div class="product-caption">文案、分镜图和成片的轻量工作流</div>
-        </div>
-        <div class="workflow-tabs" role="tablist" aria-label="workflow">
+        <nav class="workflow-tabs" role="tablist" aria-label="工作流">
           <button class="tab-button active" data-tab="copy" type="button">文案</button>
           <button class="tab-button" data-tab="image" type="button">图片</button>
           <button class="tab-button" data-tab="video" type="button">视频</button>
+        </nav>
+        <div class="header-actions">
+          <button id="openSettings" class="settings-button" type="button">设置</button>
+          <div class="status-pill" id="status">就绪</div>
         </div>
       </header>
 
       <main class="workspace">
-        <aside class="config-rail">
-          <section class="config-section">
-            <div class="section-kicker">项目</div>
-            <label>
-              主题
-              <input id="topic" value="自助餐成瘾者回本哥的人生" />
-            </label>
-          </section>
-
-          <section class="config-section">
-            <div class="section-kicker">文案接口</div>
-            <label>
-              服务类型
-              <select id="textProvider">
-                <option value="openai">OpenAI-compatible</option>
-                <option value="gemini_web2api">Gemini Web2API</option>
-              </select>
-            </label>
-            <label>
-              接口地址
-              <input id="baseUrl" placeholder="http://127.0.0.1:8081/v1" />
-            </label>
-            <label>
-              模型
-              <input id="model" placeholder="gemini-3.5-flash-thinking" />
-            </label>
-            <label>
-              密钥
-              <input id="apiKey" type="password" placeholder="sk-..." />
-            </label>
-          </section>
-
-          <section class="config-section">
-            <div class="section-kicker">图片接口</div>
-            <label>
-              服务类型
-              <select id="imageProvider">
-                <option value="openai">OpenAI-compatible</option>
-              </select>
-            </label>
-            <label>
-              接口地址
-              <input id="imageBaseUrl" placeholder="https://api.example.com" />
-            </label>
-            <label>
-              模型
-              <input id="imageModel" placeholder="image-model-name" />
-            </label>
-            <label>
-              密钥
-              <input id="imageApiKey" type="password" placeholder="sk-..." />
-            </label>
-            <label>
-              图片尺寸
-              <input id="imageSize" value="1024x1792" />
-            </label>
-          </section>
-
-          <section class="config-section">
-            <div class="section-kicker">配音</div>
-            <label>
-              音色
-              <select id="voice">
-                <option value="zh-CN-YunxiNeural">云希男声</option>
-                <option value="zh-CN-XiaoxiaoNeural">晓晓女声</option>
-                <option value="zh-CN-YunjianNeural">云健男声</option>
-                <option value="zh-CN-XiaoyiNeural">晓伊女声</option>
-              </select>
-            </label>
-            <label>
-              语速
-              <select id="rate">
-                <option value="+12%">+12%</option>
-                <option value="+0%">+0%</option>
-                <option value="+20%">+20%</option>
-                <option value="-5%">-5%</option>
-              </select>
-            </label>
-          </section>
-        </aside>
-
         <section class="stage">
           <section class="tab-view active" id="tab-copy">
-            <div class="hero-tile light">
+            <div class="page-head">
               <div>
-                <h1>先把口播写清楚。</h1>
+                <span class="page-kicker">文案</span>
+                <h1>口播与分镜</h1>
               </div>
-              <div class="hero-actions">
+              <div class="page-actions">
                 <button id="resetCopyPrompt" class="secondary-pill" type="button">恢复提示词</button>
                 <button id="generateCopy" class="primary-pill" type="button">生成口播并拆分镜</button>
               </div>
             </div>
 
             <div class="copy-grid">
-              <section class="prompt-panel">
+              <section class="work-panel">
                 <div class="panel-head">
                   <div>
                     <h2>文案提示词</h2>
@@ -135,7 +49,7 @@
                 <textarea id="copyPrompt" spellcheck="false"></textarea>
               </section>
 
-              <section class="prompt-panel">
+              <section class="work-panel">
                 <div class="panel-head">
                   <div>
                     <h2>口播文案</h2>
@@ -151,7 +65,7 @@
                 <span>分镜数据（自动生成，高级）</span>
                 <span id="jsonMeta">0 个镜头</span>
               </summary>
-              <div class="editor-wrap story-editor">
+              <div class="story-editor">
                 <div class="panel-head">
                   <div>
                     <h2>内部 JSON</h2>
@@ -169,54 +83,177 @@
           </section>
 
           <section class="tab-view" id="tab-image">
-            <div class="hero-tile parchment">
+            <div class="page-head">
               <div>
-                <h1>再生成分镜图。</h1>
+                <span class="page-kicker">图片</span>
+                <h1>分镜图生成</h1>
               </div>
-              <div class="hero-actions">
+              <div class="page-actions">
                 <button id="resetImagePrompt" class="secondary-pill" type="button">恢复提示词</button>
                 <button id="refreshGallery" class="secondary-pill" type="button">刷新列表</button>
                 <button id="generateImages" class="primary-pill" type="button">批量生成</button>
               </div>
             </div>
-            <div class="image-prompt-wrap">
-              <div class="panel-head">
-                <div>
-                  <h2>图片提示词</h2>
-                  <span id="imagePromptMeta">0 字</span>
+
+            <div class="image-layout">
+              <section class="work-panel image-prompt-wrap">
+                <div class="panel-head">
+                  <div>
+                    <h2>图片提示词</h2>
+                    <span id="imagePromptMeta">0 字</span>
+                  </div>
                 </div>
-              </div>
-              <textarea id="imagePrompt" spellcheck="false"></textarea>
+                <textarea id="imagePrompt" spellcheck="false"></textarea>
+              </section>
+
+              <section class="gallery-panel">
+                <div class="image-toolbar">
+                  <div id="selectedShotLabel">未选择镜头</div>
+                  <button id="redrawSelected" class="utility-button" type="button">重抽选中图片</button>
+                </div>
+                <div class="shot-grid" id="shotGrid"></div>
+              </section>
             </div>
-            <div class="image-toolbar">
-              <div id="selectedShotLabel">未选择镜头</div>
-              <button id="redrawSelected" class="utility-button" type="button">重抽选中图片</button>
-            </div>
-            <div class="shot-grid" id="shotGrid"></div>
           </section>
 
           <section class="tab-view" id="tab-video">
+            <div class="page-head">
+              <div>
+                <span class="page-kicker">视频</span>
+                <h1>成片渲染</h1>
+              </div>
+              <div class="page-actions">
+                <button id="render" class="primary-pill" type="button">渲染 MP4</button>
+              </div>
+            </div>
+
             <div class="video-layout">
-              <div class="hero-tile dark">
-                <div>
-                  <h1>最后合成视频。</h1>
-                  <p>使用当前分镜、图片路径、Edge TTS 和字幕生成竖屏 MP4。</p>
-                </div>
-                <div class="hero-actions">
-                  <button id="render" class="primary-pill" type="button">渲染 MP4</button>
-                </div>
-              </div>
-              <div class="video-output">
+              <section class="preview-panel">
                 <video id="preview" controls playsinline></video>
-                <div class="output-meta">
+              </section>
+              <section class="result-panel">
+                <div class="result-head">
+                  <h2>输出</h2>
                   <a id="openVideo" class="text-link" href="#" target="_blank" hidden>打开视频</a>
-                  <pre id="result">{}</pre>
                 </div>
-              </div>
+                <pre id="result">{}</pre>
+              </section>
             </div>
           </section>
         </section>
       </main>
+
+      <div class="settings-backdrop" id="settingsBackdrop" hidden></div>
+      <aside class="settings-drawer" id="settingsDrawer" aria-label="设置" aria-hidden="true">
+        <div class="settings-shell">
+          <div class="settings-head">
+            <div>
+              <h2>设置</h2>
+              <span>接口、模型、密钥和配音</span>
+            </div>
+            <button id="closeSettings" class="icon-button" type="button" aria-label="关闭设置">×</button>
+          </div>
+
+          <section class="config-section project-section">
+            <div class="section-head">
+              <span>项目</span>
+            </div>
+            <label class="field wide-field">
+              <span>主题</span>
+              <input id="topic" value="自助餐成瘾者回本哥的人生" />
+            </label>
+          </section>
+
+          <section class="config-section">
+            <div class="section-head">
+              <span>文案接口</span>
+            </div>
+            <div class="field-grid">
+              <label class="field">
+                <span>服务类型</span>
+                <select id="textProvider">
+                  <option value="openai">OpenAI-compatible</option>
+                  <option value="gemini_web2api">Gemini Web2API</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>模型</span>
+                <input id="model" placeholder="gemini-3.5-flash-thinking" />
+              </label>
+              <label class="field wide-field">
+                <span>接口地址</span>
+                <input id="baseUrl" placeholder="http://127.0.0.1:8081/v1" />
+              </label>
+              <label class="field wide-field">
+                <span>密钥</span>
+                <input id="apiKey" type="password" placeholder="sk-..." />
+              </label>
+            </div>
+            <div class="settings-test-row">
+              <button id="testTextConnection" class="secondary-pill" type="button">测试文案连接</button>
+            </div>
+          </section>
+
+          <section class="config-section">
+            <div class="section-head">
+              <span>图片接口</span>
+            </div>
+            <div class="field-grid">
+              <label class="field">
+                <span>服务类型</span>
+                <select id="imageProvider">
+                  <option value="openai">OpenAI-compatible</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>图片尺寸</span>
+                <input id="imageSize" value="1024x1792" />
+              </label>
+              <label class="field wide-field">
+                <span>模型</span>
+                <input id="imageModel" placeholder="image-model-name" />
+              </label>
+              <label class="field wide-field">
+                <span>接口地址</span>
+                <input id="imageBaseUrl" placeholder="https://api.example.com" />
+              </label>
+              <label class="field wide-field">
+                <span>密钥</span>
+                <input id="imageApiKey" type="password" placeholder="sk-..." />
+              </label>
+            </div>
+            <div class="settings-test-row">
+              <button id="testImageConnection" class="secondary-pill" type="button">测试图片连接</button>
+            </div>
+          </section>
+
+          <section class="config-section">
+            <div class="section-head">
+              <span>配音</span>
+            </div>
+            <div class="field-grid">
+              <label class="field">
+                <span>音色</span>
+                <select id="voice">
+                  <option value="zh-CN-YunxiNeural">云希男声</option>
+                  <option value="zh-CN-XiaoxiaoNeural">晓晓女声</option>
+                  <option value="zh-CN-YunjianNeural">云健男声</option>
+                  <option value="zh-CN-XiaoyiNeural">晓伊女声</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>语速</span>
+                <select id="rate">
+                  <option value="+12%">+12%</option>
+                  <option value="+0%">+0%</option>
+                  <option value="+20%">+20%</option>
+                  <option value="-5%">-5%</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        </div>
+      </aside>
     </div>
     <script src="/static/app.js"></script>
   </body>

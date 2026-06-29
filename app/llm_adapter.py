@@ -49,6 +49,8 @@ def _endpoint(base_url: str) -> str:
     clean = base_url.rstrip("/")
     if clean.endswith("/v1/chat/completions") or clean.endswith("/chat/completions"):
         return clean
+    if clean.endswith("/v1"):
+        return f"{clean}/chat/completions"
     return f"{clean}/v1/chat/completions"
 
 
@@ -166,3 +168,13 @@ def generate_story_from_copy(topic: str, copy_text: str, cfg: LLMConfig, system_
         return _extract_json(content)
     except Exception as exc:
         raise LLMError(f"LLM did not return valid storyboard JSON: {content[:1000]}") from exc
+
+
+def test_text_connection(cfg: LLMConfig) -> dict[str, Any]:
+    content = _provider_text("你是接口连通性测试助手。只回复 OK。", "请回复 OK", replace(cfg, temperature=0))
+    return {
+        "ok": True,
+        "provider": cfg.provider,
+        "model": cfg.model,
+        "sample": content.strip()[:80],
+    }

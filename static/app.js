@@ -14,6 +14,8 @@ const copyPromptMeta = $("copyPromptMeta");
 const copyMeta = $("copyMeta");
 const imagePrompt = $("imagePrompt");
 const imagePromptMeta = $("imagePromptMeta");
+const settingsDrawer = $("settingsDrawer");
+const settingsBackdrop = $("settingsBackdrop");
 const SETTINGS_KEY = "rensheng-fuben-settings";
 const GEMINI_WEB2API_DEFAULT_BASE_URL = "http://127.0.0.1:8081/v1";
 const GEMINI_WEB2API_DEFAULT_MODEL = "gemini-3.5-flash-thinking";
@@ -29,7 +31,7 @@ function setStatus(text, kind = "") {
 }
 
 function setBusy(busy) {
-  for (const id of ["loadExample", "generate", "generateCopy", "buildStoryboard", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt"]) {
+  for (const id of ["loadExample", "generate", "generateCopy", "buildStoryboard", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt", "testTextConnection", "testImageConnection"]) {
     const el = $(id);
     if (el) el.disabled = busy;
   }
@@ -84,6 +86,18 @@ function applyTextProviderDefaults() {
   if (!$("apiKey").value.trim()) {
     $("apiKey").value = "sk-local";
   }
+}
+
+function openSettings() {
+  settingsBackdrop.hidden = false;
+  settingsDrawer.classList.add("open");
+  settingsDrawer.setAttribute("aria-hidden", "false");
+}
+
+function closeSettings() {
+  settingsDrawer.classList.remove("open");
+  settingsDrawer.setAttribute("aria-hidden", "true");
+  settingsBackdrop.hidden = true;
 }
 
 function persistSettings() {
@@ -166,6 +180,16 @@ function storyPayload() {
   };
 }
 
+function textConnectionPayload() {
+  return {
+    provider: $("textProvider").value,
+    base_url: $("baseUrl").value.trim(),
+    model: $("model").value.trim(),
+    api_key: $("apiKey").value.trim(),
+    temperature: 0,
+  };
+}
+
 function copyToStoryPayload(copyText) {
   return {
     topic: $("topic").value.trim(),
@@ -175,6 +199,16 @@ function copyToStoryPayload(copyText) {
     model: $("model").value.trim(),
     api_key: $("apiKey").value.trim(),
     temperature: 0.5,
+  };
+}
+
+function imageConnectionPayload() {
+  return {
+    provider: $("imageProvider").value,
+    base_url: $("imageBaseUrl").value.trim(),
+    model: $("imageModel").value.trim(),
+    api_key: $("imageApiKey").value.trim(),
+    size: $("imageSize").value.trim() || "1024x1792",
   };
 }
 
@@ -189,6 +223,48 @@ function imagePayload(extra = {}) {
     fixed_prompt: imagePrompt.value,
     ...extra,
   };
+}
+
+async function testTextConnection() {
+  persistSettings();
+  setBusy(true);
+  setStatus("测试文案", "busy");
+  try {
+    const data = await postJson("/api/settings/test-text", textConnectionPayload());
+    resultEl.textContent = JSON.stringify({
+      "文案连接": "通过",
+      "服务": data.provider,
+      "模型": data.model,
+      "返回": data.sample,
+    }, null, 2);
+    setStatus("连接正常");
+  } catch (err) {
+    setStatus("连接失败", "error");
+    resultEl.textContent = String(err.message || err);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function testImageConnection() {
+  persistSettings();
+  setBusy(true);
+  setStatus("测试图片", "busy");
+  try {
+    const data = await postJson("/api/settings/test-image", imageConnectionPayload());
+    resultEl.textContent = JSON.stringify({
+      "图片连接": "通过",
+      "服务": data.provider,
+      "模型": data.model,
+      "返回": data.returned,
+    }, null, 2);
+    setStatus("连接正常");
+  } catch (err) {
+    setStatus("连接失败", "error");
+    resultEl.textContent = String(err.message || err);
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function loadExample() {
@@ -432,6 +508,11 @@ $("redrawSelected").addEventListener("click", () => redrawShot(selectedShot));
 $("refreshGallery").addEventListener("click", renderShotGrid);
 $("validate").addEventListener("click", validateJson);
 $("render").addEventListener("click", renderVideo);
+$("openSettings").addEventListener("click", openSettings);
+$("closeSettings").addEventListener("click", closeSettings);
+$("settingsBackdrop").addEventListener("click", closeSettings);
+$("testTextConnection").addEventListener("click", testTextConnection);
+$("testImageConnection").addEventListener("click", testImageConnection);
 $("resetCopyPrompt").addEventListener("click", () => {
   copyPrompt.value = defaultCopyPrompt;
   persistSettings();
@@ -462,6 +543,9 @@ for (const id of ["textProvider", "baseUrl", "model", "imageProvider", "imageBas
 $("textProvider").addEventListener("change", () => {
   applyTextProviderDefaults();
   persistSettings();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeSettings();
 });
 
 loadSettings();

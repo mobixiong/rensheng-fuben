@@ -60,6 +60,8 @@ def _endpoint(base_url: str) -> str:
     clean = base_url.rstrip("/")
     if clean.endswith("/v1/images/generations") or clean.endswith("/images/generations"):
         return clean
+    if clean.endswith("/v1"):
+        return f"{clean}/images/generations"
     return f"{clean}/v1/images/generations"
 
 
@@ -69,7 +71,7 @@ def _download(url: str, out_path: Path) -> None:
         out_path.write_bytes(resp.read())
 
 
-def _openai_image(prompt: str, cfg: ImageConfig, out_path: Path) -> None:
+def _openai_image_response(prompt: str, cfg: ImageConfig, timeout: int = 180) -> dict[str, Any]:
     if not cfg.base_url or not cfg.api_key or not cfg.model:
         raise ImageError("Image base_url/api_key/model is required")
     body = {
@@ -89,14 +91,17 @@ def _openai_image(prompt: str, cfg: ImageConfig, out_path: Path) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="ignore"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")[:1000]
         raise ImageError(f"Image HTTP {exc.code}: {detail}") from exc
     except Exception as exc:
         raise ImageError(f"Image request failed: {exc}") from exc
 
+
+def _openai_image(prompt: str, cfg: ImageConfig, out_path: Path) -> None:
+    data = _openai_image_response(prompt, cfg)
     item = (data.get("data") or [{}])[0]
     if item.get("b64_json"):
         out_path.write_bytes(base64.b64decode(item["b64_json"]))
@@ -160,3 +165,23 @@ def generate_one_story_image(story: dict[str, Any], shot_index: int, cfg: ImageC
     shot["image_url"] = f"/workspace/{project_id}/images/shot_{shot_index + 1:02d}.png"
     shot["resolved_image_prompt"] = prompt
     return updated
+
+
+def test_image_connection(cfg: ImageConfig) -> dict[str, Any]:
+    provider = (cfg.provider or "openai").lower()
+    if provider not in {"openai", "openai_compatible", "compatible"}:
+        raise ImageError(f"Unsupported image provider: {cfg.provider}")
+    data = _openai_image_response(
+        "连接测试：一张极简白底蓝色圆点图，不要文字、Logo、水印。",
+        cfg,
+        timeout=90,
+    )
+    item = (data.get("data") or [{}])[0]
+    if not (item.get("b64_json") or item.get("url")):
+        raise ImageError(f"Unexpected image response: {str(data)[:1000]}")
+    return {
+        "ok": True,
+        "provider": cfg.provider,
+        "model": cfg.model,
+        "returned": "b64_json" if item.get("b64_json") else "url",
+    }

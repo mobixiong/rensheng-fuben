@@ -174,6 +174,8 @@ POST /api/text/generate-copy
 POST /api/text/copy-to-story
 POST /api/text/generate
 POST /api/llm/generate
+POST /api/settings/test-text
+POST /api/settings/test-image
 POST /api/image/generate-story
 POST /api/image/regenerate-shot
 POST /api/render
