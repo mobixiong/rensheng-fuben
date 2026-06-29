@@ -46,13 +46,13 @@ def build_shot_image_prompt(story: dict[str, Any], shot: dict[str, Any], fixed_p
     base = fixed_prompt or load_image_prompt()
     return "\n\n".join([
         base,
-        "STYLE_PRESET:",
+        "当前故事整体风格补充：",
         str(story.get("style_preset") or ""),
-        "SHOT:",
-        f"voiceover: {shot.get('voiceover', '')}",
-        f"visual: {shot.get('visual', '')}",
-        f"image_prompt: {shot.get('image_prompt', '')}",
-        "Return one clean vertical 9:16 illustration. Do not draw readable text.",
+        "当前分镜信息：",
+        f"口播：{shot.get('voiceover', '')}",
+        f"画面描述：{shot.get('visual', '')}",
+        f"补充提示词：{shot.get('image_prompt', '')}",
+        "请生成一张竖屏9:16分镜图。画面中不要出现可读文字、字幕、Logo、水印、二维码、品牌名或界面文字。",
     ])
 
 
