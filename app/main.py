@@ -7,12 +7,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images
-from .llm_adapter import LLMConfig, LLMError, generate_story
+from .llm_adapter import LLMConfig, LLMError, generate_story, generate_text
 from .pipeline import ROOT, WORKSPACE, RenderError, render_story
 
 
 STATIC = ROOT / "static"
 EXAMPLES = ROOT / "examples"
+COPY_PROMPT = ROOT / "prompt.txt"
 
 try:
     from dotenv import load_dotenv
@@ -29,9 +30,6 @@ class GenerateRequest(BaseModel):
     api_key: str = ""
     model: str = ""
     temperature: float = 0.8
-    secure_1psid: str = ""
-    secure_1psidts: str = ""
-    proxy: str | None = None
     system_prompt: str | None = None
 
 
@@ -42,9 +40,6 @@ class ImageGenerateRequest(BaseModel):
     api_key: str = ""
     model: str = ""
     size: str = "1024x1792"
-    secure_1psid: str = ""
-    secure_1psidts: str = ""
-    proxy: str | None = None
     fixed_prompt: str | None = None
 
 
@@ -83,6 +78,27 @@ def example() -> dict[str, Any]:
     import json
 
     return json.loads((EXAMPLES / "buffet_story.json").read_text(encoding="utf-8"))
+
+
+@app.get("/api/prompt/default")
+def default_prompt() -> dict[str, str]:
+    return {"prompt": COPY_PROMPT.read_text(encoding="utf-8")}
+
+
+@app.get("/api/prompt/image")
+def image_prompt() -> dict[str, str]:
+    from .image_adapter import load_image_prompt
+
+    return {"prompt": load_image_prompt()}
+
+
+@app.post("/api/text/generate-copy")
+def text_generate_copy(req: GenerateRequest) -> dict[str, str]:
+    try:
+        text = generate_text(req.topic, LLMConfig.from_payload(req.model_dump()), req.system_prompt)
+        return {"topic": req.topic, "text": text}
+    except LLMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/text/generate")

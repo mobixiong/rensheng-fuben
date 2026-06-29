@@ -2,13 +2,15 @@ import json
 import os
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROMPT_PATH = ROOT / "prompts" / "story_shots.md"
+GEMINI_WEB2API_BASE_URL = "http://127.0.0.1:8081/v1"
+GEMINI_WEB2API_MODEL = "gemini-3.5-flash-thinking"
 
 
 @dataclass
@@ -18,9 +20,6 @@ class LLMConfig:
     api_key: str = ""
     model: str = ""
     temperature: float = 0.8
-    secure_1psid: str = ""
-    secure_1psidts: str = ""
-    proxy: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "LLMConfig":
@@ -30,9 +29,6 @@ class LLMConfig:
             api_key=(payload.get("api_key") or os.getenv("LLM_API_KEY") or "").strip(),
             model=(payload.get("model") or os.getenv("LLM_MODEL") or "").strip(),
             temperature=float(payload.get("temperature") or os.getenv("LLM_TEMPERATURE") or 0.8),
-            secure_1psid=(payload.get("secure_1psid") or os.getenv("GEMINI_SECURE_1PSID") or "").strip(),
-            secure_1psidts=(payload.get("secure_1psidts") or os.getenv("GEMINI_SECURE_1PSIDTS") or "").strip(),
-            proxy=(payload.get("proxy") or os.getenv("GEMINI_PROXY") or "").strip() or None,
         )
 
 
@@ -104,34 +100,42 @@ def _openai_text(prompt: str, topic: str, cfg: LLMConfig) -> str:
         raise LLMError(f"Unexpected LLM response: {str(data)[:1000]}") from exc
 
 
-def _gemini_webapi_text(prompt: str, topic: str, cfg: LLMConfig) -> str:
-    if not cfg.secure_1psid:
-        raise LLMError("Gemini WebAPI requires __Secure-1PSID")
-    try:
-        import asyncio
-        from gemini_webapi import GeminiClient
-    except Exception as exc:
-        raise LLMError("gemini_webapi is not installed. Run: pip install gemini_webapi") from exc
-
-    async def _run() -> str:
-        client = GeminiClient(cfg.secure_1psid, cfg.secure_1psidts or None, proxy=cfg.proxy)
-        await client.init(timeout=30, auto_close=True, close_delay=5, auto_refresh=True)
-        response = await client.generate_content(f"{prompt}\n\n\u4e3b\u9898\uff1a{topic}")
-        return str(response.text)
-
-    return asyncio.run(_run())
+def _gemini_web2api_text(prompt: str, topic: str, cfg: LLMConfig) -> str:
+    web2api_cfg = replace(
+        cfg,
+        base_url=cfg.base_url or os.getenv("GEMINI_WEB2API_BASE_URL") or GEMINI_WEB2API_BASE_URL,
+        api_key=cfg.api_key or os.getenv("GEMINI_WEB2API_API_KEY") or "sk-local",
+        model=cfg.model or os.getenv("GEMINI_WEB2API_MODEL") or GEMINI_WEB2API_MODEL,
+    )
+    return _openai_text(prompt, topic, web2api_cfg)
 
 
-def generate_story(topic: str, cfg: LLMConfig, system_prompt: str | None = None) -> dict[str, Any]:
-    prompt = system_prompt or load_default_prompt()
+def _fill_topic_placeholders(prompt: str, topic: str) -> str:
+    replacements = {
+        "【填写主题】": topic,
+        "【主题】": topic,
+        "{主题}": topic,
+        "【在这里填写主题，比如：快递小哥 / 外卖员 / 县城宝妈 / 北漂程序员 / 房产中介】": topic,
+    }
+    for placeholder, value in replacements.items():
+        prompt = prompt.replace(placeholder, value)
+    return prompt
+
+
+def generate_text(topic: str, cfg: LLMConfig, system_prompt: str | None = None) -> str:
+    prompt = _fill_topic_placeholders(system_prompt or load_default_prompt(), topic)
     provider = (cfg.provider or "openai").lower()
     if provider in {"openai", "openai_compatible", "compatible"}:
         content = _openai_text(prompt, topic, cfg)
-    elif provider in {"gemini", "gemini_webapi", "hanaoka", "hanaokayuzu"}:
-        content = _gemini_webapi_text(prompt, topic, cfg)
+    elif provider in {"gemini", "gemini_web2api", "web2api", "gemini_reverse_proxy"}:
+        content = _gemini_web2api_text(prompt, topic, cfg)
     else:
         raise LLMError(f"Unsupported text provider: {cfg.provider}")
+    return content.strip()
 
+
+def generate_story(topic: str, cfg: LLMConfig, system_prompt: str | None = None) -> dict[str, Any]:
+    content = generate_text(topic, cfg, system_prompt)
     try:
         return _extract_json(content)
     except Exception as exc:

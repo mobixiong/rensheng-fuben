@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import json
 import os
@@ -27,9 +26,6 @@ class ImageConfig:
     api_key: str = ""
     model: str = ""
     size: str = "1024x1792"
-    secure_1psid: str = ""
-    secure_1psidts: str = ""
-    proxy: str | None = None
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "ImageConfig":
@@ -39,9 +35,6 @@ class ImageConfig:
             api_key=(payload.get("api_key") or os.getenv("IMAGE_API_KEY") or "").strip(),
             model=(payload.get("model") or os.getenv("IMAGE_MODEL") or "").strip(),
             size=(payload.get("size") or os.getenv("IMAGE_SIZE") or "1024x1792").strip(),
-            secure_1psid=(payload.get("secure_1psid") or os.getenv("GEMINI_SECURE_1PSID") or "").strip(),
-            secure_1psidts=(payload.get("secure_1psidts") or os.getenv("GEMINI_SECURE_1PSIDTS") or "").strip(),
-            proxy=(payload.get("proxy") or os.getenv("GEMINI_PROXY") or "").strip() or None,
         )
 
 
@@ -114,32 +107,11 @@ def _openai_image(prompt: str, cfg: ImageConfig, out_path: Path) -> None:
     raise ImageError(f"Unexpected image response: {str(data)[:1000]}")
 
 
-def _gemini_image(prompt: str, cfg: ImageConfig, out_path: Path) -> None:
-    if not cfg.secure_1psid:
-        raise ImageError("Gemini WebAPI requires __Secure-1PSID")
-    try:
-        from gemini_webapi import GeminiClient
-    except Exception as exc:
-        raise ImageError("gemini_webapi is not installed. Run: pip install gemini_webapi") from exc
-
-    async def _run() -> None:
-        client = GeminiClient(cfg.secure_1psid, cfg.secure_1psidts or None, proxy=cfg.proxy)
-        await client.init(timeout=30, auto_close=True, close_delay=5, auto_refresh=True)
-        response = await client.generate_content(prompt)
-        if not response.images:
-            raise ImageError("Gemini returned no images")
-        await response.images[0].save(path=str(out_path.parent), filename=out_path.name, verbose=False)
-
-    asyncio.run(_run())
-
-
 def generate_image(prompt: str, cfg: ImageConfig, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     provider = (cfg.provider or "openai").lower()
     if provider in {"openai", "openai_compatible", "compatible"}:
         _openai_image(prompt, cfg, out_path)
-    elif provider in {"gemini", "gemini_webapi", "hanaoka", "hanaokayuzu"}:
-        _gemini_image(prompt, cfg, out_path)
     else:
         raise ImageError(f"Unsupported image provider: {cfg.provider}")
 

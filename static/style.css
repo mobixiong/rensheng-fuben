@@ -337,6 +337,42 @@ textarea:focus {
   overflow: hidden;
 }
 
+.story-editor {
+  height: 520px;
+  min-height: 420px;
+}
+
+.copy-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  padding: 24px 24px 0;
+}
+
+.prompt-panel,
+.image-prompt-wrap {
+  min-height: 360px;
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+}
+
+.image-prompt-wrap {
+  min-height: 260px;
+  margin: 24px 64px;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .panel-head {
   display: flex;
   align-items: center;
@@ -567,10 +603,20 @@ pre {
 
   .hero-tile,
   .image-toolbar,
+  .image-prompt-wrap,
   .shot-grid,
   .video-output {
     padding-left: 24px;
     padding-right: 24px;
+  }
+
+  .image-prompt-wrap {
+    margin-left: 24px;
+    margin-right: 24px;
+  }
+
+  .copy-grid {
+    grid-template-columns: 1fr;
   }
 
   .hero-tile {

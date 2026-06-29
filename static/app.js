@@ -8,10 +8,20 @@ const openVideo = $("openVideo");
 const jsonMeta = $("jsonMeta");
 const shotGrid = $("shotGrid");
 const selectedShotLabel = $("selectedShotLabel");
+const copyPrompt = $("copyPrompt");
+const copyOutput = $("copyOutput");
+const copyPromptMeta = $("copyPromptMeta");
+const copyMeta = $("copyMeta");
+const imagePrompt = $("imagePrompt");
+const imagePromptMeta = $("imagePromptMeta");
 const SETTINGS_KEY = "rensheng-fuben-settings";
+const GEMINI_WEB2API_DEFAULT_BASE_URL = "http://127.0.0.1:8081/v1";
+const GEMINI_WEB2API_DEFAULT_MODEL = "gemini-3.5-flash-thinking";
 
 let activeTab = "copy";
 let selectedShot = 0;
+let defaultCopyPrompt = "";
+let defaultImagePrompt = "";
 
 function setStatus(text, kind = "") {
   statusEl.textContent = text;
@@ -19,7 +29,7 @@ function setStatus(text, kind = "") {
 }
 
 function setBusy(busy) {
-  for (const id of ["loadExample", "generate", "generateImages", "redrawSelected", "validate", "render", "refreshGallery"]) {
+  for (const id of ["loadExample", "generate", "generateCopy", "generateImages", "redrawSelected", "validate", "render", "refreshGallery", "resetCopyPrompt", "resetImagePrompt"]) {
     const el = $(id);
     if (el) el.disabled = busy;
   }
@@ -46,6 +56,12 @@ function updateMeta() {
   }
 }
 
+function updatePromptMeta() {
+  if (copyPromptMeta) copyPromptMeta.textContent = `${copyPrompt.value.length} 字`;
+  if (copyMeta) copyMeta.textContent = `${copyOutput.value.length} 字`;
+  if (imagePromptMeta) imagePromptMeta.textContent = `${imagePrompt.value.length} 字`;
+}
+
 function setTab(tab) {
   activeTab = tab;
   for (const button of document.querySelectorAll(".tab-button")) {
@@ -55,6 +71,19 @@ function setTab(tab) {
     panel.classList.toggle("active", panel.id === `tab-${tab}`);
   }
   if (tab === "image") renderShotGrid();
+}
+
+function applyTextProviderDefaults() {
+  if ($("textProvider").value !== "gemini_web2api") return;
+  if (!$("baseUrl").value.trim() || $("baseUrl").value.includes("api.example.com")) {
+    $("baseUrl").value = GEMINI_WEB2API_DEFAULT_BASE_URL;
+  }
+  if (!$("model").value.trim() || $("model").value === "your-model-name") {
+    $("model").value = GEMINI_WEB2API_DEFAULT_MODEL;
+  }
+  if (!$("apiKey").value.trim()) {
+    $("apiKey").value = "sk-local";
+  }
 }
 
 function persistSettings() {
@@ -68,22 +97,39 @@ function persistSettings() {
     imageSize: $("imageSize").value,
     voice: $("voice").value,
     rate: $("rate").value,
+    copyPrompt: copyPrompt.value,
+    imagePrompt: imagePrompt.value,
   }));
 }
 
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-    $("textProvider").value = s.textProvider || "openai";
+    $("textProvider").value = ["openai", "gemini_web2api"].includes(s.textProvider) ? s.textProvider : "openai";
     $("baseUrl").value = s.baseUrl || "";
     $("model").value = s.model || "";
-    $("imageProvider").value = s.imageProvider || "openai";
+    $("imageProvider").value = s.imageProvider === "openai" ? s.imageProvider : "openai";
     $("imageBaseUrl").value = s.imageBaseUrl || "";
     $("imageModel").value = s.imageModel || "";
     $("imageSize").value = s.imageSize || "1024x1792";
     $("voice").value = s.voice || "zh-CN-YunxiNeural";
     $("rate").value = s.rate || "+12%";
+    if (s.copyPrompt) copyPrompt.value = s.copyPrompt;
+    if (s.imagePrompt) imagePrompt.value = s.imagePrompt;
+    applyTextProviderDefaults();
   } catch {}
+}
+
+async function loadPromptDefaults() {
+  const [copyRes, imageRes] = await Promise.all([
+    fetch("/api/prompt/default"),
+    fetch("/api/prompt/image"),
+  ]);
+  defaultCopyPrompt = (await copyRes.json()).prompt || "";
+  defaultImagePrompt = (await imageRes.json()).prompt || "";
+  if (!copyPrompt.value.trim()) copyPrompt.value = defaultCopyPrompt;
+  if (!imagePrompt.value.trim()) imagePrompt.value = defaultImagePrompt;
+  updatePromptMeta();
 }
 
 async function postJson(url, payload) {
@@ -104,8 +150,18 @@ function textPayload() {
     base_url: $("baseUrl").value.trim(),
     model: $("model").value.trim(),
     api_key: $("apiKey").value.trim(),
-    secure_1psid: $("geminiPsid").value.trim(),
-    secure_1psidts: $("geminiPsidts").value.trim(),
+    system_prompt: copyPrompt.value,
+    temperature: 0.8,
+  };
+}
+
+function storyPayload() {
+  return {
+    topic: $("topic").value.trim(),
+    provider: $("textProvider").value,
+    base_url: $("baseUrl").value.trim(),
+    model: $("model").value.trim(),
+    api_key: $("apiKey").value.trim(),
     temperature: 0.8,
   };
 }
@@ -118,8 +174,7 @@ function imagePayload(extra = {}) {
     model: $("imageModel").value.trim(),
     api_key: $("imageApiKey").value.trim(),
     size: $("imageSize").value.trim() || "1024x1792",
-    secure_1psid: $("geminiPsid").value.trim(),
-    secure_1psidts: $("geminiPsidts").value.trim(),
+    fixed_prompt: imagePrompt.value,
     ...extra,
   };
 }
@@ -136,11 +191,29 @@ async function generateStory() {
   setBusy(true);
   setStatus("Writing", "busy");
   try {
-    const data = await postJson("/api/text/generate", textPayload());
+    const data = await postJson("/api/text/generate", storyPayload());
     writeStory(data);
     resultEl.textContent = JSON.stringify({ text_generation: "ok", shots: data.shots?.length || 0 }, null, 2);
     setStatus("Ready");
     setTab("image");
+  } catch (err) {
+    setStatus("Error", "error");
+    resultEl.textContent = String(err.message || err);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function generateCopy() {
+  persistSettings();
+  setBusy(true);
+  setStatus("Writing", "busy");
+  try {
+    const data = await postJson("/api/text/generate-copy", textPayload());
+    copyOutput.value = data.text || "";
+    resultEl.textContent = JSON.stringify({ copy_generation: "ok", topic: data.topic, chars: copyOutput.value.length }, null, 2);
+    updatePromptMeta();
+    setStatus("Ready");
   } catch (err) {
     setStatus("Error", "error");
     resultEl.textContent = String(err.message || err);
@@ -307,19 +380,44 @@ document.addEventListener("click", (event) => {
 
 $("loadExample").addEventListener("click", loadExample);
 $("generate").addEventListener("click", generateStory);
+$("generateCopy").addEventListener("click", generateCopy);
 $("generateImages").addEventListener("click", generateImages);
 $("redrawSelected").addEventListener("click", () => redrawShot(selectedShot));
 $("refreshGallery").addEventListener("click", renderShotGrid);
 $("validate").addEventListener("click", validateJson);
 $("render").addEventListener("click", renderVideo);
+$("resetCopyPrompt").addEventListener("click", () => {
+  copyPrompt.value = defaultCopyPrompt;
+  persistSettings();
+  updatePromptMeta();
+});
+$("resetImagePrompt").addEventListener("click", () => {
+  imagePrompt.value = defaultImagePrompt;
+  persistSettings();
+  updatePromptMeta();
+});
 editor.addEventListener("input", () => {
   updateMeta();
   if (activeTab === "image") renderShotGrid();
+});
+copyPrompt.addEventListener("input", () => {
+  persistSettings();
+  updatePromptMeta();
+});
+copyOutput.addEventListener("input", updatePromptMeta);
+imagePrompt.addEventListener("input", () => {
+  persistSettings();
+  updatePromptMeta();
 });
 
 for (const id of ["textProvider", "baseUrl", "model", "imageProvider", "imageBaseUrl", "imageModel", "imageSize", "voice", "rate"]) {
   $(id).addEventListener("change", persistSettings);
 }
+$("textProvider").addEventListener("change", () => {
+  applyTextProviderDefaults();
+  persistSettings();
+});
 
 loadSettings();
+loadPromptDefaults().catch(() => updatePromptMeta());
 loadExample().catch(() => setStatus("Ready"));

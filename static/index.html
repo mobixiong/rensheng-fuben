@@ -46,16 +46,16 @@
               Provider
               <select id="textProvider">
                 <option value="openai">OpenAI-compatible</option>
-                <option value="gemini_webapi">Gemini WebAPI</option>
+                <option value="gemini_web2api">Gemini Web2API</option>
               </select>
             </label>
             <label>
               Base URL
-              <input id="baseUrl" placeholder="https://api.example.com" />
+              <input id="baseUrl" placeholder="http://127.0.0.1:8081/v1" />
             </label>
             <label>
               Model
-              <input id="model" placeholder="model-name" />
+              <input id="model" placeholder="gemini-3.5-flash-thinking" />
             </label>
             <label>
               API Key
@@ -69,7 +69,6 @@
               Provider
               <select id="imageProvider">
                 <option value="openai">OpenAI-compatible</option>
-                <option value="gemini_webapi">Gemini WebAPI</option>
               </select>
             </label>
             <label>
@@ -87,18 +86,6 @@
             <label>
               Size
               <input id="imageSize" value="1024x1792" />
-            </label>
-          </section>
-
-          <section class="config-section">
-            <div class="section-kicker">Gemini Web</div>
-            <label>
-              __Secure-1PSID
-              <input id="geminiPsid" type="password" placeholder="Gemini cookie" />
-            </label>
-            <label>
-              __Secure-1PSIDTS
-              <input id="geminiPsidts" type="password" placeholder="Optional" />
             </label>
           </section>
 
@@ -129,22 +116,47 @@
           <section class="tab-view active" id="tab-copy">
             <div class="hero-tile light">
               <div>
-                <h1>先把副本写清楚。</h1>
-                <p>生成或编辑 Story JSON。后面的图片和视频都依赖这个结构。</p>
+                <h1>先把口播写清楚。</h1>
               </div>
               <div class="hero-actions">
-                <button id="loadExample" class="secondary-pill" type="button">加载示例</button>
-                <button id="generate" class="primary-pill" type="button">生成文案</button>
+                <button id="resetCopyPrompt" class="secondary-pill" type="button">恢复提示词</button>
+                <button id="generateCopy" class="primary-pill" type="button">生成口播</button>
               </div>
             </div>
 
-            <div class="editor-wrap">
+            <div class="copy-grid">
+              <section class="prompt-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>文案提示词</h2>
+                    <span id="copyPromptMeta">0 字</span>
+                  </div>
+                </div>
+                <textarea id="copyPrompt" spellcheck="false"></textarea>
+              </section>
+
+              <section class="prompt-panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>口播文案</h2>
+                    <span id="copyMeta">0 字</span>
+                  </div>
+                </div>
+                <textarea id="copyOutput" spellcheck="false"></textarea>
+              </section>
+            </div>
+
+            <div class="editor-wrap story-editor">
               <div class="panel-head">
                 <div>
                   <h2>Story JSON</h2>
                   <span id="jsonMeta">0 shots</span>
                 </div>
-                <button id="validate" class="utility-button" type="button">校验</button>
+                <div class="panel-actions">
+                  <button id="loadExample" class="utility-button" type="button">加载示例</button>
+                  <button id="generate" class="utility-button" type="button">生成分镜 JSON</button>
+                  <button id="validate" class="utility-button" type="button">校验</button>
+                </div>
               </div>
               <textarea id="jsonEditor" spellcheck="false"></textarea>
             </div>
@@ -154,12 +166,21 @@
             <div class="hero-tile parchment">
               <div>
                 <h1>再生成分镜图。</h1>
-                <p>可批量生成，也可以对不满意的单张图片重抽。</p>
               </div>
               <div class="hero-actions">
+                <button id="resetImagePrompt" class="secondary-pill" type="button">恢复提示词</button>
                 <button id="refreshGallery" class="secondary-pill" type="button">刷新列表</button>
                 <button id="generateImages" class="primary-pill" type="button">批量生成</button>
               </div>
+            </div>
+            <div class="image-prompt-wrap">
+              <div class="panel-head">
+                <div>
+                  <h2>图片提示词</h2>
+                  <span id="imagePromptMeta">0 字</span>
+                </div>
+              </div>
+              <textarea id="imagePrompt" spellcheck="false"></textarea>
             </div>
             <div class="image-toolbar">
               <div id="selectedShotLabel">未选择镜头</div>
