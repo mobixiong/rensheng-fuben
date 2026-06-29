@@ -16,6 +16,8 @@ const imagePrompt = $("imagePrompt");
 const imagePromptMeta = $("imagePromptMeta");
 const settingsDrawer = $("settingsDrawer");
 const settingsBackdrop = $("settingsBackdrop");
+const textConnectionResult = $("textConnectionResult");
+const imageConnectionResult = $("imageConnectionResult");
 const SETTINGS_KEY = "rensheng-fuben-settings";
 const GEMINI_WEB2API_DEFAULT_BASE_URL = "http://127.0.0.1:8081/v1";
 const GEMINI_WEB2API_DEFAULT_MODEL = "gemini-3.5-flash-thinking";
@@ -88,6 +90,12 @@ function applyTextProviderDefaults() {
   }
 }
 
+function setTestResult(el, text, kind = "") {
+  if (!el) return;
+  el.textContent = text;
+  el.className = `test-result ${kind}`.trim();
+}
+
 function openSettings() {
   settingsBackdrop.hidden = false;
   settingsDrawer.classList.add("open");
@@ -102,6 +110,7 @@ function closeSettings() {
 
 function persistSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    topic: $("topic").value,
     textProvider: $("textProvider").value,
     baseUrl: $("baseUrl").value,
     model: $("model").value,
@@ -120,6 +129,7 @@ function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
     $("textProvider").value = ["openai", "gemini_web2api"].includes(s.textProvider) ? s.textProvider : "openai";
+    if (s.topic) $("topic").value = s.topic;
     $("baseUrl").value = s.baseUrl || "";
     $("model").value = s.model || "";
     $("imageProvider").value = s.imageProvider === "openai" ? s.imageProvider : "openai";
@@ -229,8 +239,10 @@ async function testTextConnection() {
   persistSettings();
   setBusy(true);
   setStatus("测试文案", "busy");
+  setTestResult(textConnectionResult, "测试中", "testing");
   try {
     const data = await postJson("/api/settings/test-text", textConnectionPayload());
+    setTestResult(textConnectionResult, "连接成功", "ok");
     resultEl.textContent = JSON.stringify({
       "文案连接": "通过",
       "服务": data.provider,
@@ -239,6 +251,7 @@ async function testTextConnection() {
     }, null, 2);
     setStatus("连接正常");
   } catch (err) {
+    setTestResult(textConnectionResult, "连接失败", "error");
     setStatus("连接失败", "error");
     resultEl.textContent = String(err.message || err);
   } finally {
@@ -250,8 +263,10 @@ async function testImageConnection() {
   persistSettings();
   setBusy(true);
   setStatus("测试图片", "busy");
+  setTestResult(imageConnectionResult, "测试中", "testing");
   try {
     const data = await postJson("/api/settings/test-image", imageConnectionPayload());
+    setTestResult(imageConnectionResult, "连接成功", "ok");
     resultEl.textContent = JSON.stringify({
       "图片连接": "通过",
       "服务": data.provider,
@@ -260,6 +275,7 @@ async function testImageConnection() {
     }, null, 2);
     setStatus("连接正常");
   } catch (err) {
+    setTestResult(imageConnectionResult, "连接失败", "error");
     setStatus("连接失败", "error");
     resultEl.textContent = String(err.message || err);
   } finally {
@@ -536,6 +552,7 @@ imagePrompt.addEventListener("input", () => {
   persistSettings();
   updatePromptMeta();
 });
+$("topic").addEventListener("input", persistSettings);
 
 for (const id of ["textProvider", "baseUrl", "model", "imageProvider", "imageBaseUrl", "imageModel", "imageSize", "voice", "rate"]) {
   $(id).addEventListener("change", persistSettings);

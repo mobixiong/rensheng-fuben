@@ -207,7 +207,32 @@ summary:focus-visible {
   min-height: 0;
   min-width: 0;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
+}
+
+.topic-bar {
+  min-width: 0;
+  padding: 18px 24px 0;
+}
+
+.topic-field {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(240px, 680px);
+  align-items: center;
+  justify-content: start;
+  gap: 12px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.topic-field input {
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 10px 26px rgba(20, 31, 51, 0.05);
 }
 
 .settings-backdrop {
@@ -285,7 +310,36 @@ summary:focus-visible {
 .settings-test-row {
   margin-top: 12px;
   display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: flex-start;
+}
+
+.test-result {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.test-result.testing {
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.test-result.ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.test-result.error {
+  background: #fee4e2;
+  color: var(--danger);
 }
 
 .config-rail {
@@ -852,6 +906,15 @@ pre {
     padding: 16px;
   }
 
+  .topic-bar {
+    padding: 16px 16px 0;
+  }
+
+  .topic-field {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
   .page-head {
     align-items: stretch;
     flex-direction: column;
@@ -924,6 +987,15 @@ pre {
     width: 100%;
     white-space: normal;
     line-height: 1.25;
+  }
+
+  .settings-test-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .test-result {
+    justify-content: center;
   }
 
   .advanced-story summary {

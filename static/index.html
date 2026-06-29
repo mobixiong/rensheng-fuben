@@ -25,6 +25,13 @@
       </header>
 
       <main class="workspace">
+        <section class="topic-bar" aria-label="主题">
+          <label class="topic-field">
+            <span>主题</span>
+            <input id="topic" value="自助餐成瘾者回本哥的人生" />
+          </label>
+        </section>
+
         <section class="stage">
           <section class="tab-view active" id="tab-copy">
             <div class="page-head">
@@ -154,16 +161,6 @@
             <button id="closeSettings" class="icon-button" type="button" aria-label="关闭设置">×</button>
           </div>
 
-          <section class="config-section project-section">
-            <div class="section-head">
-              <span>项目</span>
-            </div>
-            <label class="field wide-field">
-              <span>主题</span>
-              <input id="topic" value="自助餐成瘾者回本哥的人生" />
-            </label>
-          </section>
-
           <section class="config-section">
             <div class="section-head">
               <span>文案接口</span>
@@ -191,6 +188,7 @@
             </div>
             <div class="settings-test-row">
               <button id="testTextConnection" class="secondary-pill" type="button">测试文案连接</button>
+              <span id="textConnectionResult" class="test-result">未测试</span>
             </div>
           </section>
 
@@ -224,6 +222,7 @@
             </div>
             <div class="settings-test-row">
               <button id="testImageConnection" class="secondary-pill" type="button">测试图片连接</button>
+              <span id="imageConnectionResult" class="test-result">未测试</span>
             </div>
           </section>
 
