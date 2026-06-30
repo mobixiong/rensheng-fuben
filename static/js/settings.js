@@ -125,7 +125,7 @@ export function createSettings({ els }) {
       els.imageApiKey.value = secrets.imageApiKey || s.imageApiKey || "";
       els.imageSize.value = ["9:16", "1:1", "16:9"].includes(s.imageSize) ? s.imageSize : "9:16";
       if (els.introTemplate) {
-        els.introTemplate.value = ["none", "clean", "soft", "impact", "life_copy_reveal", "life_copy_fast_cut"].includes(s.introTemplate)
+        els.introTemplate.value = ["none", "life_copy_fast_cut"].includes(s.introTemplate)
           ? s.introTemplate
           : "life_copy_fast_cut";
       }

@@ -1,6 +1,5 @@
 import asyncio
 import json
-import math
 import shutil
 import subprocess
 import time
@@ -18,13 +17,12 @@ from .tts_adapter import TtsConfig, synthesize_tts
 W, H = 1080, 1920
 FPS = 30
 FAST_CUT_TEMPLATE = "life_copy_fast_cut"
-INTRO_TEMPLATES = {"none", "clean", "soft", "impact", "life_copy_reveal", FAST_CUT_TEMPLATE}
-FINAL_FILTER_TEMPLATES = {"clean", "soft", "impact"}
-FAST_CUT_MAX_IMAGES = 12
+INTRO_TEMPLATES = {"none", FAST_CUT_TEMPLATE}
+FAST_CUT_MAX_IMAGES = 5
 FAST_CUT_TARGET_SECONDS = 3.0
 FAST_CUT_MIN_SECONDS = 1.2
-FAST_CUT_INTERVAL = 0.22
-INTRO_PREVIEW_TEMPLATES = ["life_copy_fast_cut", "life_copy_reveal", "clean", "soft", "impact", "none"]
+FAST_CUT_TRANSITION_SECONDS = 0.36
+INTRO_PREVIEW_TEMPLATES = [FAST_CUT_TEMPLATE, "none"]
 
 
 DEFAULT_STYLE = (
@@ -231,31 +229,6 @@ def _allocate(shots: list[dict[str, Any]], total: float) -> None:
 
 def _clip(image_path: Path, out_path: Path, duration: float, intro_template: str = "none") -> None:
     frames = max(1, int(duration * FPS))
-    if intro_template in {"life_copy_reveal", "clean", "impact"}:
-        reveal_duration = min(0.75, max(0.22, duration * 0.35))
-        if intro_template == "impact":
-            reveal_duration = min(0.45, max(0.18, duration * 0.25))
-        image_vf = (
-            f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-            f"crop={W}:{H},"
-            f"zoompan=z='1.075-0.075*on/{frames}':d={frames}:s={W}x{H}:fps={FPS},"
-            "format=yuv420p"
-        )
-        filter_complex = (
-            f"[1:v]{image_vf}[img];"
-            f"[0:v][img]xfade=transition=smoothdown:duration={reveal_duration:.3f}:offset=0,format=yuv420p[v]"
-        )
-        _run([
-            "ffmpeg", "-y",
-            "-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:r={FPS}:d={duration:.3f}",
-            "-loop", "1", "-i", str(image_path),
-            "-filter_complex", filter_complex,
-            "-map", "[v]", "-t", f"{duration:.3f}",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-            "-pix_fmt", "yuv420p", str(out_path),
-        ])
-        return
-
     vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
         f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,"
@@ -269,60 +242,80 @@ def _clip(image_path: Path, out_path: Path, duration: float, intro_template: str
     ])
 
 
-def _fast_cut_segment(image_path: Path, out_path: Path, frames: int, idx: int) -> None:
-    frames = max(1, int(frames))
-    zoom_start = 1.015 + (idx % 3) * 0.01
-    zoom_delta = 0.018 + (idx % 2) * 0.01
-    vf = (
-        f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-        f"crop={W}:{H},"
-        f"zoompan=z='{zoom_start:.3f}+{zoom_delta:.3f}*on/{frames}':d={frames}:s={W}x{H}:fps={FPS},"
-        "eq=contrast=1.06:saturation=1.08,"
-        "format=yuv420p"
-    )
+def _page_clip(image_paths: list[Path], out_path: Path, duration: float) -> None:
+    usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
+    if duration <= 0.4 or len(usable) < 2:
+        _clip(usable[0] if usable else image_paths[0], out_path, duration, "none")
+        return
+
+    transition = min(FAST_CUT_TRANSITION_SECONDS, max(0.18, duration * 0.16))
+    transition = min(transition, max(0.08, duration - 0.12))
+    clip_duration = (duration + transition * (len(usable) - 1)) / len(usable)
+    frames = max(1, int(round(clip_duration * FPS)))
+    cmd = ["ffmpeg", "-y"]
+    filters: list[str] = []
+    for idx, image_path in enumerate(usable):
+        cmd.extend(["-loop", "1", "-i", str(image_path)])
+        zoom_start = 1.045 + (idx % 2) * 0.012
+        zoom_delta = 0.026 + (idx % 3) * 0.006
+        filters.append(
+            f"[{idx}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
+            f"crop={W}:{H},"
+            f"zoompan=z='{zoom_start:.3f}-{zoom_delta:.3f}*on/{frames}':d={frames}:s={W}x{H}:fps={FPS},"
+            f"trim=duration={clip_duration:.3f},setpts=PTS-STARTPTS,"
+            "eq=contrast=1.06:saturation=1.08,format=yuv420p,settb=AVTB"
+            f"[v{idx}]"
+        )
+
+    current = "v0"
+    transitions = ["smoothleft", "smoothdown", "smoothright", "smoothup"]
+    for idx in range(1, len(usable)):
+        out_label = f"x{idx}"
+        offset = max(0.01, idx * (clip_duration - transition))
+        transition_name = transitions[(idx - 1) % len(transitions)]
+        filters.append(
+            f"[{current}][v{idx}]xfade=transition={transition_name}:"
+            f"duration={transition:.3f}:offset={offset:.3f},format=yuv420p,settb=AVTB"
+            f"[{out_label}]"
+        )
+        current = out_label
+
     _run([
-        "ffmpeg", "-y", "-loop", "1", "-i", str(image_path),
-        "-vf", vf, "-frames:v", str(frames),
+        *cmd,
+        "-filter_complex", ";".join(filters),
+        "-map", f"[{current}]", "-t", f"{duration:.3f}",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
         "-pix_fmt", "yuv420p", str(out_path),
     ])
 
 
 def _fast_cut_clip(image_paths: list[Path], out_path: Path, duration: float) -> None:
-    usable = [path for path in image_paths if path.exists()]
+    usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
     if duration <= 0.4 or len(usable) < 2:
-        _clip(usable[0] if usable else image_paths[0], out_path, duration, "impact")
+        _clip(usable[0] if usable else image_paths[0], out_path, duration, "none")
         return
 
-    total_frames = max(1, int(round(duration * FPS)))
-    fast_frames = min(
-        total_frames,
-        max(
-            int(round(FAST_CUT_MIN_SECONDS * FPS)),
-            min(int(round(FAST_CUT_TARGET_SECONDS * FPS)), int(round(len(usable) * FAST_CUT_INTERVAL * FPS))),
-        ),
-    )
-    cut_count = max(2, min(len(usable), FAST_CUT_MAX_IMAGES, int(math.ceil(fast_frames / max(1, round(FAST_CUT_INTERVAL * FPS))))))
-    cut_paths = usable[:cut_count]
-    base_frames = max(1, fast_frames // cut_count)
-    extra_frames = fast_frames % cut_count
+    effect_duration = min(duration, FAST_CUT_TARGET_SECONDS)
+    if duration >= FAST_CUT_MIN_SECONDS:
+        effect_duration = max(FAST_CUT_MIN_SECONDS, effect_duration)
+    effect_duration = min(effect_duration, duration)
+    remaining = max(0.0, duration - effect_duration)
 
-    segment_dir = out_path.parent / f"{out_path.stem}_fastcut"
+    segment_dir = out_path.parent / f"{out_path.stem}_page"
     segment_dir.mkdir(parents=True, exist_ok=True)
-    segments: list[Path] = []
-    for idx, image_path in enumerate(cut_paths):
-        segment_path = segment_dir / f"cut_{idx + 1:02d}.mp4"
-        _fast_cut_segment(image_path, segment_path, base_frames + (1 if idx < extra_frames else 0), idx)
-        segments.append(segment_path)
-
-    remaining_frames = total_frames - fast_frames
-    if remaining_frames > 0:
-        hold_path = segment_dir / "hold.mp4"
-        _fast_cut_segment(cut_paths[-1], hold_path, remaining_frames, len(cut_paths))
-        segments.append(hold_path)
+    page_path = segment_dir / "page.mp4"
+    hold_path = segment_dir / "hold.mp4"
+    segments = [page_path]
 
     try:
-        _concat(segments, out_path)
+        _page_clip(usable, page_path, effect_duration)
+        if remaining > 0.08:
+            _clip(usable[-1], hold_path, remaining, "none")
+            segments.append(hold_path)
+        if len(segments) == 1:
+            shutil.copy2(page_path, out_path)
+        else:
+            _concat(segments, out_path)
     finally:
         list_path = out_path.with_suffix(".txt")
         if list_path.exists():
@@ -337,30 +330,6 @@ def _concat(clips: list[Path], out_path: Path) -> None:
     _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(out_path)])
 
 
-def _apply_intro_visual_filter(input_path: Path, out_path: Path, intro_template: str, duration: float) -> None:
-    filters: list[str] = []
-    if intro_template == "soft":
-        filters.extend(["eq=brightness=0.02:saturation=1.05", "fade=t=in:st=0:d=0.45"])
-    elif intro_template == "clean":
-        filters.extend(["vignette=PI/7:0.35", "fade=t=in:st=0:d=0.5"])
-    elif intro_template == "impact":
-        filters.extend(["eq=contrast=1.08:saturation=1.12", "vignette=PI/6:0.42", "fade=t=in:st=0:d=0.35"])
-    if intro_template in FINAL_FILTER_TEMPLATES and duration > 0.8:
-        filters.append(f"fade=t=out:st={max(duration - 0.4, 0):.3f}:d=0.4")
-    if not filters:
-        if input_path.resolve() != out_path.resolve():
-            shutil.copy2(input_path, out_path)
-        return
-    _run([
-        "ffmpeg", "-y", "-i", str(input_path),
-        "-vf", ",".join(filters),
-        "-t", f"{duration:.3f}",
-        "-an",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p", str(out_path),
-    ])
-
-
 def _concat_audio(files: list[Path], out_path: Path) -> None:
     list_path = out_path.with_suffix(".audio.txt")
     list_path.write_text("".join(f"file '{p.as_posix()}'\n" for p in files), encoding="utf-8")
@@ -372,16 +341,7 @@ def _concat_audio(files: list[Path], out_path: Path) -> None:
 
 def _video_filter(ass: Path, intro_template: str, duration: float) -> str:
     ass_arg = _ffmpeg_path_arg(ass)
-    filters = [f"ass='{ass_arg}'"]
-    if intro_template == "soft":
-        filters.extend(["eq=brightness=0.02:saturation=1.05", "fade=t=in:st=0:d=0.45"])
-    elif intro_template == "clean":
-        filters.extend(["vignette=PI/7:0.35", "fade=t=in:st=0:d=0.5"])
-    elif intro_template == "impact":
-        filters.extend(["eq=contrast=1.08:saturation=1.12", "vignette=PI/6:0.42", "fade=t=in:st=0:d=0.35"])
-    if intro_template in FINAL_FILTER_TEMPLATES and duration > 0.8:
-        filters.append(f"fade=t=out:st={max(duration - 0.4, 0):.3f}:d=0.4")
-    return ",".join(filters)
+    return f"ass='{ass_arg}'"
 
 
 def _final(
@@ -509,6 +469,26 @@ def _project_image_for_index(project_dir: Path, index: int) -> Path | None:
     return matches[0] if matches else None
 
 
+def _shot_image_source(
+    raw_shot: dict[str, Any],
+    normalized_shot: dict[str, Any],
+    project_dir: Path,
+    index: int,
+) -> Path | None:
+    candidates: list[Path] = []
+    raw_path = str(raw_shot.get("image_path") or normalized_shot.get("image_path") or "").strip()
+    if raw_path:
+        candidates.append(Path(raw_path))
+    raw_url = str(raw_shot.get("image_url") or "").strip()
+    workspace_path = _workspace_path_from_url(raw_url)
+    if workspace_path:
+        candidates.append(workspace_path)
+    project_image = _project_image_for_index(project_dir, index)
+    if project_image:
+        candidates.append(project_image)
+    return next((path for path in candidates if path.exists()), None)
+
+
 def _preview_image_paths(
     original_story: dict[str, Any],
     normalized_story: dict[str, Any],
@@ -516,32 +496,13 @@ def _preview_image_paths(
     preview_dir: Path,
 ) -> list[Path]:
     source_shots = original_story.get("shots") if isinstance(original_story.get("shots"), list) else []
-    normalized_shots = normalized_story["shots"]
-    image_dir = preview_dir / "images"
-    image_dir.mkdir(parents=True, exist_ok=True)
+    normalized_shots = normalized_story["shots"][:FAST_CUT_MAX_IMAGES]
     image_paths: list[Path] = []
     for idx, normalized_shot in enumerate(normalized_shots, 1):
         raw_shot = source_shots[idx - 1] if idx - 1 < len(source_shots) and isinstance(source_shots[idx - 1], dict) else {}
-        candidates: list[Path] = []
-        raw_path = str(raw_shot.get("image_path") or normalized_shot.get("image_path") or "").strip()
-        if raw_path:
-            candidates.append(Path(raw_path))
-        raw_url = str(raw_shot.get("image_url") or "").strip()
-        workspace_path = _workspace_path_from_url(raw_url)
-        if workspace_path:
-            candidates.append(workspace_path)
-        project_image = _project_image_for_index(project_dir, idx)
-        if project_image:
-            candidates.append(project_image)
-
-        source = next((path for path in candidates if path.exists()), None)
+        source = _shot_image_source(raw_shot, normalized_shot, project_dir, idx)
         if source:
             image_paths.append(source)
-            continue
-
-        fallback = image_dir / f"shot_{idx:02d}.png"
-        render_placeholder_image(normalized_shot, fallback, idx - 1, normalized_story["title"])
-        image_paths.append(fallback)
     return image_paths
 
 
@@ -565,23 +526,15 @@ def render_intro_previews(
 
     image_paths = _preview_image_paths(story, clean, project_dir, preview_dir)
     if not image_paths:
-        raise RenderError("No images available for intro preview")
+        raise RenderError("请先生成至少 1 张项目图片后再预览开头模板")
 
     items: list[dict[str, str]] = []
     for template in valid_templates:
         out_path = preview_dir / f"{template}.mp4"
         if template == FAST_CUT_TEMPLATE:
             _fast_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration)
-        elif template in FINAL_FILTER_TEMPLATES:
-            raw_path = preview_dir / f"{template}.raw.mp4"
-            try:
-                _clip(image_paths[0], raw_path, duration, template)
-                _apply_intro_visual_filter(raw_path, out_path, template, duration)
-            finally:
-                if raw_path.exists():
-                    raw_path.unlink()
         else:
-            _clip(image_paths[0], out_path, duration, template)
+            _clip(image_paths[0], out_path, duration, "none")
         items.append({
             "id": template,
             "video": f"/workspace/{project_id}/previews/intro_templates/{template}.mp4",
@@ -672,6 +625,7 @@ def render_story(
     script_path.write_text(json.dumps({**clean, "audio_duration": total}, ensure_ascii=False, indent=2), encoding="utf-8")
 
     image_paths: list[Path] = []
+    source_shots = story.get("shots") if isinstance(story.get("shots"), list) else []
     for idx, shot in enumerate(shots):
         report(
             0.5 + (idx / max(shot_total, 1)) * 0.12,
@@ -681,9 +635,12 @@ def render_story(
             total=shot_total,
         )
         img_path = images / f"shot_{idx + 1:02d}.png"
-        provided = Path(shot["image_path"]) if shot.get("image_path") else None
-        if provided and provided.exists():
+        raw_shot = source_shots[idx] if idx < len(source_shots) and isinstance(source_shots[idx], dict) else {}
+        provided = _shot_image_source(raw_shot, shot, project_dir, idx + 1)
+        if provided and provided.resolve() != img_path.resolve():
             shutil.copy2(provided, img_path)
+        elif provided and provided.exists():
+            pass
         else:
             render_placeholder_image(shot, img_path, idx, clean["title"])
         image_paths.append(img_path)

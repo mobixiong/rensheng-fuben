@@ -119,7 +119,11 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (typeof projectStateData.copy_text === "string") els.copyOutput.value = projectStateData.copy_text;
     if (typeof projectStateData.copy_prompt === "string") els.copyPrompt.value = projectStateData.copy_prompt;
     if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
-    if (els.introTemplate && typeof projectStateData.intro_template === "string") els.introTemplate.value = projectStateData.intro_template;
+    if (els.introTemplate && typeof projectStateData.intro_template === "string") {
+      els.introTemplate.value = ["none", "life_copy_fast_cut"].includes(projectStateData.intro_template)
+        ? projectStateData.intro_template
+        : "life_copy_fast_cut";
+    }
     if (els.ttsPreset && typeof projectStateData.tts_preset === "string") els.ttsPreset.value = projectStateData.tts_preset;
     if (els.bgmSelect && typeof projectStateData.bgm_id === "string") {
       const exists = Array.from(els.bgmSelect.options).some((option) => option.value === projectStateData.bgm_id);
