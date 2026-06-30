@@ -13,6 +13,7 @@ function mergeShotImageResult(targetStory, sourceStory, index) {
   for (const key of ["image_path", "image_url", "resolved_image_prompt"]) {
     if (sourceShot[key]) targetShot[key] = sourceShot[key];
   }
+  targetShot._image_version = Date.now();
   targetShot._image_status = "done";
   delete targetShot._image_error;
   if (sourceStory.project_id) targetStory.project_id = sourceStory.project_id;
@@ -21,6 +22,15 @@ function mergeShotImageResult(targetStory, sourceStory, index) {
 
 function hasShotImage(shot) {
   return Boolean(shot?.image_url || shot?.image_path);
+}
+
+function normalizeShotIndexes(indexes, shotsLength) {
+  const values = indexes instanceof Set ? Array.from(indexes) : Array.isArray(indexes) ? indexes : [indexes];
+  return Array.from(new Set(
+    values
+      .map(Number)
+      .filter((index) => Number.isInteger(index) && index >= 0 && index < shotsLength),
+  )).sort((a, b) => a - b);
 }
 
 export function createWorkflow({ els, ui, api, settings, storyView, projectStore, state, setActiveTab }) {
@@ -271,7 +281,6 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
 
   async function redrawShot(index) {
     settings.persist();
-    state.selectedShot = index;
     ui.setBusy(true);
     ui.setStatus("重抽中", "busy");
     state.imageGenerationActive = true;
@@ -290,6 +299,88 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
         "重抽": "完成",
         "镜头": index + 1,
         "项目编号": data.project_id,
+      }, null, 2);
+      await projectStore.queueSave({ applyState: false, refreshProjects: false });
+      ui.setStatus("就绪");
+    } catch (err) {
+      ui.setStatus("出错", "error");
+      els.result.textContent = String(err.message || err);
+      await projectStore.queueSave({ applyState: false, refreshProjects: false });
+    } finally {
+      await state.projectSaveQueue.catch(() => null);
+      state.imageGenerationActive = false;
+      await projectStore.loadList().catch(() => null);
+      ui.setBusy(false);
+    }
+  }
+
+  async function redrawSelectedShots(indexes) {
+    settings.persist();
+    ui.setBusy(true);
+    ui.setStatus("批量重抽", "busy");
+    state.imageGenerationActive = true;
+    clearTimeout(state.saveTimer);
+    try {
+      await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
+      let story = storyView.read();
+      const shots = story.shots || [];
+      if (!Array.isArray(shots) || shots.length === 0) {
+        throw new Error("分镜列表为空");
+      }
+      const redrawIndexes = normalizeShotIndexes(indexes, shots.length);
+      if (redrawIndexes.length === 0) {
+        throw new Error("请先点击选择要重抽的图片");
+      }
+      const redrawSet = new Set(redrawIndexes);
+      story = {
+        ...story,
+        project_id: story.project_id || projectStore.mediaProjectId() || createImageProjectId(),
+        shots: shots.map((shot, index) => ({
+          ...shot,
+          _image_status: redrawSet.has(index) ? "generating" : shot._image_status,
+        })),
+      };
+      storyView.write(story);
+
+      let completed = 0;
+      const tasks = redrawIndexes.map((index) =>
+        regenerateShotWithRetry(story, index)
+          .then(async (data) => {
+            story = mergeShotImageResult(story, data, index);
+            completed += 1;
+            storyView.write(story);
+            els.result.textContent = JSON.stringify({
+              "批量重抽": "进行中",
+              "已完成": completed,
+              "总数": redrawIndexes.length,
+              "最近完成镜头": index + 1,
+              "项目编号": story.project_id,
+            }, null, 2);
+            ui.setStatus(`重抽 ${completed}/${redrawIndexes.length}`, "busy");
+            await projectStore.queueSave({ applyState: false, refreshProjects: false });
+            return data;
+          })
+          .catch(async (err) => {
+            if (story.shots?.[index]) {
+              story.shots[index]._image_status = "error";
+              story.shots[index]._image_error = String(err.message || err);
+              storyView.write(story);
+              await projectStore.queueSave({ applyState: false, refreshProjects: false });
+            }
+            throw err;
+          })
+      );
+
+      const results = await Promise.allSettled(tasks);
+      const failed = results.filter((item) => item.status === "rejected");
+      if (failed.length) {
+        throw new Error(`批量重抽完成 ${completed}/${redrawIndexes.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
+      }
+
+      els.result.textContent = JSON.stringify({
+        "批量重抽": "完成",
+        "本次重抽": redrawIndexes.length,
+        "项目编号": story.project_id,
       }, null, 2);
       await projectStore.queueSave({ applyState: false, refreshProjects: false });
       ui.setStatus("就绪");
@@ -342,6 +433,7 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
     buildStoryboardFromCopy,
     generateImagesParallel,
     redrawShot,
+    redrawSelectedShots,
     renderVideo,
   };
 }

@@ -20,5 +20,7 @@ workspace/
 *.ass
 *.srt
 
+life-copy-design/
+
 .DS_Store
 Thumbs.db

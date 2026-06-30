@@ -10,7 +10,7 @@ const { els } = ui;
 
 const state = {
   activeTab: "copy",
-  selectedShot: 0,
+  selectedShots: new Set(),
   saveTimer: 0,
   restoringProject: false,
   currentProjectId: "",
@@ -77,8 +77,24 @@ function restoreLayoutPrefs() {
   setImagePromptExpanded(readLayoutFlag(layoutKeys.imagePrompt, false), false);
 }
 
-function setSelectedShot(index) {
-  state.selectedShot = index;
+function selectedShotIndexes() {
+  return Array.from(state.selectedShots).sort((a, b) => a - b);
+}
+
+function setSelectedShots(indexes) {
+  const values = indexes instanceof Set ? Array.from(indexes) : Array.isArray(indexes) ? indexes : [];
+  state.selectedShots = new Set(values.map(Number).filter((index) => Number.isInteger(index) && index >= 0));
+}
+
+function toggleSelectedShot(index) {
+  const shotIndex = Number(index);
+  if (!Number.isInteger(shotIndex) || shotIndex < 0) return;
+  if (state.selectedShots.has(shotIndex)) {
+    state.selectedShots.delete(shotIndex);
+  } else {
+    state.selectedShots.add(shotIndex);
+  }
+  storyView.updateSelection();
 }
 
 function setActiveTab(tab) {
@@ -91,8 +107,8 @@ const settings = createSettings({ els });
 
 const storyView = createStoryView({
   els,
-  getSelectedShot: () => state.selectedShot,
-  setSelectedShot,
+  getSelectedShots: () => state.selectedShots,
+  setSelectedShots,
   getActiveTab: () => state.activeTab,
   onStoryChanged: () => projectStore?.scheduleSave(),
 });
@@ -126,14 +142,16 @@ function bindEvents() {
     const openProjectButton = event.target.closest("[data-open-project]");
     if (openProjectButton) projectStore.activate(openProjectButton.dataset.openProject);
 
-    const selectButton = event.target.closest("[data-select-shot]");
-    if (selectButton) {
-      state.selectedShot = Number(selectButton.dataset.selectShot);
-      storyView.renderShotGrid();
+    const redrawButton = event.target.closest("[data-redraw-shot]");
+    if (redrawButton) {
+      workflow.redrawShot(Number(redrawButton.dataset.redrawShot));
+      return;
     }
 
-    const redrawButton = event.target.closest("[data-redraw-shot]");
-    if (redrawButton) workflow.redrawShot(Number(redrawButton.dataset.redrawShot));
+    const selectButton = event.target.closest("[data-select-shot]");
+    if (selectButton) {
+      toggleSelectedShot(selectButton.dataset.selectShot);
+    }
   });
 
   $("loadExample").addEventListener("click", workflow.loadExample);
@@ -141,7 +159,7 @@ function bindEvents() {
   $("generateCopy").addEventListener("click", workflow.generateCopy);
   $("buildStoryboard").addEventListener("click", workflow.buildStoryboardFromCopy);
   $("generateImages").addEventListener("click", workflow.generateImagesParallel);
-  $("redrawSelected").addEventListener("click", () => workflow.redrawShot(state.selectedShot));
+  $("redrawSelected").addEventListener("click", () => workflow.redrawSelectedShots(selectedShotIndexes()));
   $("refreshGallery").addEventListener("click", storyView.renderShotGrid);
   $("validate").addEventListener("click", () => storyView.validate(els.result, ui.setStatus));
   $("render").addEventListener("click", workflow.renderVideo);
@@ -208,6 +226,11 @@ function bindEvents() {
     settings.persist();
   });
   document.addEventListener("keydown", (event) => {
+    if ((event.key === "Enter" || event.key === " ") && event.target.matches?.("[data-select-shot]")) {
+      event.preventDefault();
+      toggleSelectedShot(event.target.dataset.selectShot);
+      return;
+    }
     if (event.key === "Escape") ui.closeSettings();
   });
 }

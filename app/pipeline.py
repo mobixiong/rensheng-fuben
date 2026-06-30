@@ -299,10 +299,10 @@ def normalize_story(story: dict[str, Any]) -> dict[str, Any]:
 def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: str = "+12%", project_id: str | None = None) -> dict[str, Any]:
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
     project_dir = WORKSPACE / project_id
-    assets = project_dir / "assets"
+    images = project_dir / "images"
     audio_dir = project_dir / "audio"
     clips_dir = project_dir / "clips"
-    assets.mkdir(parents=True, exist_ok=True)
+    images.mkdir(parents=True, exist_ok=True)
     audio_dir.mkdir(parents=True, exist_ok=True)
     clips_dir.mkdir(parents=True, exist_ok=True)
 
@@ -336,7 +336,7 @@ def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: 
 
     clips: list[Path] = []
     for idx, shot in enumerate(shots):
-        img_path = assets / f"shot_{idx + 1:02d}.png"
+        img_path = images / f"shot_{idx + 1:02d}.png"
         provided = Path(shot["image_path"]) if shot.get("image_path") else None
         if provided and provided.exists():
             shutil.copy2(provided, img_path)

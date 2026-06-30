@@ -2,13 +2,19 @@ import { PROJECT_SAVE_DELAY_MS } from "./constants.js";
 import { escapeHtml } from "./html.js";
 
 export function createProjectStore({ els, ui, api, storyView, state, settings, setActiveTab }) {
+  function selectedShotIndexes() {
+    return Array.from(state.selectedShots || []).sort((a, b) => a - b);
+  }
+
   function projectState() {
+    const selectedShots = selectedShotIndexes();
     return {
       version: 1,
       project_id: state.currentProjectId,
       topic: els.topic.value,
       active_tab: state.activeTab,
-      selected_shot: state.selectedShot,
+      selected_shots: selectedShots,
+      selected_shot: selectedShots[0] ?? null,
       copy_text: els.copyOutput.value,
       story_json: els.editor.value,
       story: storyView.readOrNull(),
@@ -74,7 +80,14 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (typeof projectStateData.copy_prompt === "string") els.copyPrompt.value = projectStateData.copy_prompt;
     if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
     if (typeof projectStateData.result_text === "string") els.result.textContent = projectStateData.result_text;
-    state.selectedShot = Number.isInteger(projectStateData.selected_shot) ? projectStateData.selected_shot : state.selectedShot;
+    const selectedShots = Array.isArray(projectStateData.selected_shots)
+      ? projectStateData.selected_shots
+      : Number.isInteger(projectStateData.selected_shot)
+        ? [projectStateData.selected_shot]
+        : [];
+    state.selectedShots = new Set(
+      selectedShots.map(Number).filter((index) => Number.isInteger(index) && index >= 0),
+    );
 
     if (projectStateData.story && typeof projectStateData.story === "object") {
       storyView.write(projectStateData.story, { scheduleSave: false });
@@ -147,7 +160,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
 
   function createNew() {
     state.currentProjectId = "";
-    state.selectedShot = 0;
+    state.selectedShots = new Set();
     els.topic.value = "新项目";
     if (els.topicMirror) els.topicMirror.textContent = els.topic.value;
     els.copyOutput.value = "";

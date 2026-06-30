@@ -257,6 +257,10 @@ workspace/{project_id}/final.mp4
 
 不要提交 `.env`、API Key、本地生成的 `workspace/`、音频、字幕、视频或任何私有凭据。
 
+## 交流群
+
+<img src="交流群.jpg" alt="交流群二维码" width="200">
+
 ## 许可证
 
 MIT
