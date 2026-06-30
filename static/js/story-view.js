@@ -35,6 +35,7 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
   function updatePromptMeta() {
     if (els.copyPromptMeta) els.copyPromptMeta.textContent = `${els.copyPrompt.value.length} 字`;
     if (els.copyMeta) els.copyMeta.textContent = `${els.copyOutput.value.length} 字`;
+    if (els.copyToStoryPromptMeta) els.copyToStoryPromptMeta.textContent = `${els.copyToStoryPrompt.value.length} 字`;
     if (els.imagePromptMeta) els.imagePromptMeta.textContent = `${els.imagePrompt.value.length} 字`;
   }
 

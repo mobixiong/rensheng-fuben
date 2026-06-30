@@ -48,8 +48,10 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       result_text: els.result.textContent,
       rendered_video: currentRenderedVideoUrl(),
       copy_prompt: els.copyPrompt.value,
+      copy_to_story_prompt: els.copyToStoryPrompt?.value || "",
       image_prompt: els.imagePrompt.value,
       intro_template: els.introTemplate?.value || "none",
+      intro_image_seconds: els.introImageSeconds?.value || "0.3",
       tts_preset: els.ttsPreset?.value || "custom",
       bgm_id: els.bgmSelect?.value || "none",
     };
@@ -118,11 +120,17 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
     if (typeof projectStateData.copy_text === "string") els.copyOutput.value = projectStateData.copy_text;
     if (typeof projectStateData.copy_prompt === "string") els.copyPrompt.value = projectStateData.copy_prompt;
+    if (els.copyToStoryPrompt && typeof projectStateData.copy_to_story_prompt === "string") {
+      els.copyToStoryPrompt.value = projectStateData.copy_to_story_prompt;
+    }
     if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
     if (els.introTemplate && typeof projectStateData.intro_template === "string") {
-      els.introTemplate.value = ["none", "life_copy_fast_cut"].includes(projectStateData.intro_template)
+      els.introTemplate.value = ["none", "life_copy_fast_cut", "life_copy_expand_cut", "life_copy_flash_horizontal", "life_copy_flash_vertical", "life_copy_staggered_mask"].includes(projectStateData.intro_template)
         ? projectStateData.intro_template
         : "life_copy_fast_cut";
+    }
+    if (els.introImageSeconds && projectStateData.intro_image_seconds != null) {
+      els.introImageSeconds.value = String(projectStateData.intro_image_seconds || "0.3");
     }
     if (els.ttsPreset && typeof projectStateData.tts_preset === "string") els.ttsPreset.value = projectStateData.tts_preset;
     if (els.bgmSelect && typeof projectStateData.bgm_id === "string") {

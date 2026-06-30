@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from .audio_assets import list_bgm_options
 from .errors import RenderError
 from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images, test_image_connection
-from .llm_adapter import LLMConfig, LLMError, generate_story, generate_story_from_copy, generate_text, test_text_connection
+from .llm_adapter import LLMConfig, LLMError, generate_story, generate_story_from_copy, generate_text, load_copy_to_story_prompt, test_text_connection
 from .paths import ACTIVE_PROJECT, EXAMPLES, LEGACY_PROJECT_STATE, PROJECTS_DIR, ROOT, STATIC, WORKSPACE
 from .pipeline import render_intro_previews, render_story
 from .tts_adapter import TtsConfig
@@ -96,6 +96,7 @@ class RenderRequest(BaseModel):
     project_id: str | None = None
     cleanup_intermediate: bool = True
     intro_template: str = "none"
+    intro_image_seconds: float = 0.3
     tts_preset: str = "custom"
     bgm_id: str = "none"
 
@@ -105,6 +106,7 @@ class IntroPreviewRequest(BaseModel):
     project_id: str | None = None
     templates: list[str] | None = None
     duration: float = 3.0
+    image_seconds: float = 0.3
 
 
 class ProjectActivateRequest(BaseModel):
@@ -226,6 +228,7 @@ def _write_project_files(state: dict[str, Any]) -> dict[str, Any]:
     (project_dir / "copy.txt").write_text(str(payload.get("copy_text") or ""), encoding="utf-8")
     (project_dir / "result.txt").write_text(str(payload.get("result_text") or ""), encoding="utf-8")
     (prompts_dir / "copy_prompt.txt").write_text(str(payload.get("copy_prompt") or ""), encoding="utf-8")
+    (prompts_dir / "copy_to_story_prompt.txt").write_text(str(payload.get("copy_to_story_prompt") or ""), encoding="utf-8")
     (prompts_dir / "image_prompt.txt").write_text(str(payload.get("image_prompt") or ""), encoding="utf-8")
     if isinstance(story, dict):
         (project_dir / "story.json").write_text(json.dumps(story, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -296,6 +299,7 @@ def _render_job_worker(job_id: str, payload: dict[str, Any]) -> None:
             progress_callback=on_progress,
             intro_template=payload.get("intro_template") or "none",
             bgm_id=payload.get("bgm_id") or "none",
+            intro_image_seconds=payload.get("intro_image_seconds") or 0.3,
         )
         _set_render_job(job_id, status="complete", progress=1, stage="渲染完成", detail="成片已导出", result=data)
     except RenderError as exc:
@@ -409,6 +413,11 @@ def image_prompt() -> dict[str, str]:
     return {"prompt": load_image_prompt()}
 
 
+@app.get("/api/prompt/copy-to-story")
+def copy_to_story_prompt() -> dict[str, str]:
+    return {"prompt": load_copy_to_story_prompt()}
+
+
 @app.get("/api/bgm")
 def bgm_list() -> dict[str, Any]:
     return {"items": list_bgm_options()}
@@ -492,6 +501,7 @@ def render(req: RenderRequest) -> dict[str, Any]:
             cleanup_intermediate=req.cleanup_intermediate,
             intro_template=req.intro_template,
             bgm_id=req.bgm_id,
+            intro_image_seconds=req.intro_image_seconds,
         )
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -507,6 +517,7 @@ def render_intro_preview(req: IntroPreviewRequest) -> dict[str, Any]:
             project_id=req.project_id,
             templates=req.templates,
             duration=req.duration,
+            image_seconds=req.image_seconds,
         )
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

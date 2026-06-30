@@ -525,6 +525,11 @@ textarea {
   padding: 14px;
 }
 
+.storyboard-prompt-textarea {
+  min-height: 180px;
+  resize: vertical;
+}
+
 .project-create-panel,
 .flow-section,
 .image-prompt-panel,
@@ -1092,7 +1097,7 @@ textarea {
 
 .video-control-panel {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   padding: 16px;
 }

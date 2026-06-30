@@ -201,6 +201,9 @@ function bindEvents() {
   $("resetCopyPrompt").addEventListener("click", () => {
     settings.resetCopyPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
+  $("resetCopyToStoryPrompt")?.addEventListener("click", () => {
+    settings.resetCopyToStoryPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
+  });
   $("resetImagePrompt").addEventListener("click", () => {
     settings.resetImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
@@ -212,6 +215,11 @@ function bindEvents() {
     projectStore.scheduleSave();
   });
   els.copyOutput.addEventListener("input", () => {
+    storyView.updatePromptMeta();
+    projectStore.scheduleSave();
+  });
+  els.copyToStoryPrompt?.addEventListener("input", () => {
+    settings.persist();
     storyView.updatePromptMeta();
     projectStore.scheduleSave();
   });
@@ -248,7 +256,7 @@ function bindEvents() {
   ]) {
     $(id).addEventListener("change", settings.persist);
   }
-  for (const id of ["introTemplate", "bgmSelect"]) {
+  for (const id of ["introTemplate", "introImageSeconds", "bgmSelect"]) {
     $(id)?.addEventListener("change", () => {
       settings.persist();
       projectStore.scheduleSave();

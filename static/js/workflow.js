@@ -1,14 +1,33 @@
 import { IMAGE_CONCURRENCY_LIMIT, IMAGE_RETRY_LIMIT } from "./constants.js";
 
 const INTRO_TEMPLATE_LABELS = {
-  life_copy_fast_cut: "人生副本快切翻页",
+  life_copy_fast_cut: "翻页快切模板",
+  life_copy_expand_cut: "展开快切模板",
+  life_copy_flash_horizontal: "横向羽化快闪模板",
+  life_copy_flash_vertical: "纵向羽化快闪模板",
+  life_copy_staggered_mask: "阶梯遮罩接力模板",
   none: "无模板",
 };
 
 const INTRO_TEMPLATE_PREVIEW_IDS = [
   "life_copy_fast_cut",
+  "life_copy_expand_cut",
+  "life_copy_flash_horizontal",
+  "life_copy_flash_vertical",
+  "life_copy_staggered_mask",
   "none",
 ];
+
+const INTRO_TEMPLATE_PREVIEW_ITEMS = INTRO_TEMPLATE_PREVIEW_IDS.map((id) => ({
+  id,
+  video: `/static/assets/intro-previews/${id}.mp4`,
+}));
+
+function introImageSecondsValue(els) {
+  const value = Number.parseFloat(els.introImageSeconds?.value || "0.3");
+  if (!Number.isFinite(value) || value <= 0) return 0.3;
+  return Math.max(0.08, Math.min(3, value));
+}
 
 function createImageProjectId() {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -203,40 +222,8 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
   async function previewIntroTemplates() {
     settings.persist();
     openIntroPreviewModal();
-    ui.setBusy(true);
-    ui.setStatus("生成开头预览", "busy");
-    if (els.introPreviewGrid) {
-      els.introPreviewGrid.replaceChildren();
-      const pending = document.createElement("div");
-      pending.className = "intro-preview-empty";
-      pending.textContent = "正在使用项目前 5 张图片生成预览...";
-      els.introPreviewGrid.appendChild(pending);
-    }
-    try {
-      await projectStore.ensureSaved();
-      const payload = {
-        story: storyView.read(),
-        project_id: projectStore.mediaProjectId(),
-        templates: INTRO_TEMPLATE_PREVIEW_IDS,
-        duration: 3,
-      };
-      const data = await api.postJson("/api/render/intro-previews", payload);
-      renderIntroPreviewGrid(data);
-      els.result.textContent = JSON.stringify(data, null, 2);
-      ui.setStatus("预览完成");
-    } catch (err) {
-      ui.setStatus("出错", "error");
-      if (els.introPreviewGrid) {
-        els.introPreviewGrid.replaceChildren();
-        const failed = document.createElement("div");
-        failed.className = "intro-preview-empty error";
-        failed.textContent = String(err.message || err);
-        els.introPreviewGrid.appendChild(failed);
-      }
-      els.result.textContent = String(err.message || err);
-    } finally {
-      ui.setBusy(false);
-    }
+    renderIntroPreviewGrid({ items: INTRO_TEMPLATE_PREVIEW_ITEMS });
+    ui.setStatus("开头模板预览已打开");
   }
 
   async function testTextConnection() {
@@ -622,6 +609,7 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
         project_id: projectStore.mediaProjectId(),
         cleanup_intermediate: true,
         intro_template: els.introTemplate?.value || "none",
+        intro_image_seconds: introImageSecondsValue(els),
         bgm_id: els.bgmSelect?.value || "none",
       };
       const job = await api.postJson("/api/render/jobs", payload);
