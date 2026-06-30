@@ -232,7 +232,8 @@
                 <span>开头模板</span>
                 <select id="introTemplate">
                   <option value="none">无开头增强</option>
-                  <option value="life_copy_reveal" selected>人生副本揭幕模板</option>
+                  <option value="life_copy_reveal">人生副本揭幕模板</option>
+                  <option value="life_copy_fast_cut" selected>人生副本快切模板</option>
                   <option value="clean">干净淡入 + 暗角</option>
                   <option value="soft">柔和淡入</option>
                   <option value="impact">短视频冲击感</option>
@@ -254,6 +255,19 @@
                   <option value="none">无 BGM</option>
                 </select>
               </label>
+            </section>
+
+            <section class="intro-preview-panel">
+              <div class="intro-preview-head">
+                <div>
+                  <h2>开头模板预览</h2>
+                  <p>用当前项目图片快速生成模板预览</p>
+                </div>
+                <button id="previewIntroTemplates" class="secondary-pill" type="button">生成预览</button>
+              </div>
+              <div id="introPreviewGrid" class="intro-preview-grid">
+                <div class="intro-preview-empty">暂无预览</div>
+              </div>
             </section>
 
             <section id="renderProgress" class="render-progress" hidden>

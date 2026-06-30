@@ -171,6 +171,7 @@ function bindEvents() {
   $("refreshGallery").addEventListener("click", storyView.renderShotGrid);
   $("validate").addEventListener("click", () => storyView.validate(els.result, ui.setStatus));
   $("render").addEventListener("click", workflow.renderVideo);
+  $("previewIntroTemplates")?.addEventListener("click", workflow.previewIntroTemplates);
   $("sidebarToggle")?.addEventListener("click", () => {
     setSidebarCollapsed(!document.querySelector(".app-frame")?.classList.contains("sidebar-collapsed"));
   });
@@ -249,6 +250,11 @@ function bindEvents() {
     $(id)?.addEventListener("change", () => {
       settings.persist();
       projectStore.scheduleSave();
+      if (id === "introTemplate" && els.introPreviewGrid) {
+        for (const node of els.introPreviewGrid.querySelectorAll(".intro-preview-card")) {
+          node.classList.toggle("active", node.dataset.template === els.introTemplate.value);
+        }
+      }
     });
   }
   $("ttsPreset")?.addEventListener("change", () => {

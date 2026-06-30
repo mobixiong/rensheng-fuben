@@ -18,7 +18,7 @@ from .errors import RenderError
 from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images, test_image_connection
 from .llm_adapter import LLMConfig, LLMError, generate_story, generate_story_from_copy, generate_text, test_text_connection
 from .paths import ACTIVE_PROJECT, EXAMPLES, LEGACY_PROJECT_STATE, PROJECTS_DIR, ROOT, STATIC, WORKSPACE
-from .pipeline import render_story
+from .pipeline import render_intro_previews, render_story
 from .tts_adapter import TtsConfig
 
 
@@ -98,6 +98,13 @@ class RenderRequest(BaseModel):
     intro_template: str = "none"
     tts_preset: str = "custom"
     bgm_id: str = "none"
+
+
+class IntroPreviewRequest(BaseModel):
+    story: dict[str, Any]
+    project_id: str | None = None
+    templates: list[str] | None = None
+    duration: float = 3.0
 
 
 class ProjectActivateRequest(BaseModel):
@@ -485,6 +492,21 @@ def render(req: RenderRequest) -> dict[str, Any]:
             cleanup_intermediate=req.cleanup_intermediate,
             intro_template=req.intro_template,
             bgm_id=req.bgm_id,
+        )
+    except RenderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/render/intro-previews")
+def render_intro_preview(req: IntroPreviewRequest) -> dict[str, Any]:
+    try:
+        return render_intro_previews(
+            story=req.story,
+            project_id=req.project_id,
+            templates=req.templates,
+            duration=req.duration,
         )
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,5 +1,14 @@
 import { IMAGE_CONCURRENCY_LIMIT, IMAGE_RETRY_LIMIT } from "./constants.js";
 
+const INTRO_TEMPLATE_LABELS = {
+  none: "无开头增强",
+  life_copy_reveal: "人生副本揭幕模板",
+  life_copy_fast_cut: "人生副本快切模板",
+  clean: "干净淡入 + 暗角",
+  soft: "柔和淡入",
+  impact: "短视频冲击感",
+};
+
 function createImageProjectId() {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
   const rand = Math.random().toString(16).slice(2, 10);
@@ -135,6 +144,97 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
     }
 
     els.bgmSelect.value = Array.from(els.bgmSelect.options).some((option) => option.value === selected) ? selected : "none";
+  }
+
+  function introTemplateValues() {
+    const values = Array.from(els.introTemplate?.options || [])
+      .map((option) => option.value)
+      .filter(Boolean);
+    const selected = els.introTemplate?.value;
+    return selected && values.includes(selected)
+      ? [selected, ...values.filter((value) => value !== selected)]
+      : values;
+  }
+
+  function renderIntroPreviewGrid(data) {
+    if (!els.introPreviewGrid) return;
+    const items = Array.isArray(data?.items) ? data.items : [];
+    els.introPreviewGrid.replaceChildren();
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "intro-preview-empty";
+      empty.textContent = "暂无预览";
+      els.introPreviewGrid.appendChild(empty);
+      return;
+    }
+    for (const item of items) {
+      const templateId = String(item.id || "");
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "intro-preview-card";
+      card.dataset.template = templateId;
+      card.classList.toggle("active", els.introTemplate?.value === templateId);
+
+      const video = document.createElement("video");
+      video.src = String(item.video || "");
+      video.controls = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      video.addEventListener("click", (event) => event.stopPropagation());
+
+      const label = document.createElement("span");
+      label.textContent = INTRO_TEMPLATE_LABELS[templateId] || templateId;
+
+      card.append(video, label);
+      card.addEventListener("click", () => {
+        if (els.introTemplate) els.introTemplate.value = templateId;
+        for (const node of els.introPreviewGrid.querySelectorAll(".intro-preview-card")) {
+          node.classList.toggle("active", node === card);
+        }
+        settings.persist();
+        projectStore.scheduleSave();
+      });
+      els.introPreviewGrid.appendChild(card);
+    }
+  }
+
+  async function previewIntroTemplates() {
+    settings.persist();
+    ui.setBusy(true);
+    ui.setStatus("生成开头预览", "busy");
+    if (els.introPreviewGrid) {
+      els.introPreviewGrid.replaceChildren();
+      const pending = document.createElement("div");
+      pending.className = "intro-preview-empty";
+      pending.textContent = "正在生成预览...";
+      els.introPreviewGrid.appendChild(pending);
+    }
+    try {
+      await projectStore.ensureSaved();
+      const payload = {
+        story: storyView.read(),
+        project_id: projectStore.mediaProjectId(),
+        templates: introTemplateValues(),
+        duration: 3,
+      };
+      const data = await api.postJson("/api/render/intro-previews", payload);
+      renderIntroPreviewGrid(data);
+      els.result.textContent = JSON.stringify(data, null, 2);
+      ui.setStatus("预览完成");
+    } catch (err) {
+      ui.setStatus("出错", "error");
+      if (els.introPreviewGrid) {
+        els.introPreviewGrid.replaceChildren();
+        const failed = document.createElement("div");
+        failed.className = "intro-preview-empty error";
+        failed.textContent = String(err.message || err);
+        els.introPreviewGrid.appendChild(failed);
+      }
+      els.result.textContent = String(err.message || err);
+    } finally {
+      ui.setBusy(false);
+    }
   }
 
   async function testTextConnection() {
@@ -568,6 +668,7 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
     redrawShot,
     redrawSelectedShots,
     loadBgmOptions,
+    previewIntroTemplates,
     renderVideo,
   };
 }

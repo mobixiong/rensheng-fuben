@@ -17,8 +17,14 @@ from .tts_adapter import TtsConfig, synthesize_tts
 
 W, H = 1080, 1920
 FPS = 30
-INTRO_TEMPLATES = {"none", "clean", "soft", "impact", "life_copy_reveal"}
+FAST_CUT_TEMPLATE = "life_copy_fast_cut"
+INTRO_TEMPLATES = {"none", "clean", "soft", "impact", "life_copy_reveal", FAST_CUT_TEMPLATE}
 FINAL_FILTER_TEMPLATES = {"clean", "soft", "impact"}
+FAST_CUT_MAX_IMAGES = 12
+FAST_CUT_TARGET_SECONDS = 3.0
+FAST_CUT_MIN_SECONDS = 1.2
+FAST_CUT_INTERVAL = 0.22
+INTRO_PREVIEW_TEMPLATES = ["life_copy_fast_cut", "life_copy_reveal", "clean", "soft", "impact", "none"]
 
 
 DEFAULT_STYLE = (
@@ -263,10 +269,96 @@ def _clip(image_path: Path, out_path: Path, duration: float, intro_template: str
     ])
 
 
+def _fast_cut_segment(image_path: Path, out_path: Path, frames: int, idx: int) -> None:
+    frames = max(1, int(frames))
+    zoom_start = 1.015 + (idx % 3) * 0.01
+    zoom_delta = 0.018 + (idx % 2) * 0.01
+    vf = (
+        f"scale={W}:{H}:force_original_aspect_ratio=increase,"
+        f"crop={W}:{H},"
+        f"zoompan=z='{zoom_start:.3f}+{zoom_delta:.3f}*on/{frames}':d={frames}:s={W}x{H}:fps={FPS},"
+        "eq=contrast=1.06:saturation=1.08,"
+        "format=yuv420p"
+    )
+    _run([
+        "ffmpeg", "-y", "-loop", "1", "-i", str(image_path),
+        "-vf", vf, "-frames:v", str(frames),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-pix_fmt", "yuv420p", str(out_path),
+    ])
+
+
+def _fast_cut_clip(image_paths: list[Path], out_path: Path, duration: float) -> None:
+    usable = [path for path in image_paths if path.exists()]
+    if duration <= 0.4 or len(usable) < 2:
+        _clip(usable[0] if usable else image_paths[0], out_path, duration, "impact")
+        return
+
+    total_frames = max(1, int(round(duration * FPS)))
+    fast_frames = min(
+        total_frames,
+        max(
+            int(round(FAST_CUT_MIN_SECONDS * FPS)),
+            min(int(round(FAST_CUT_TARGET_SECONDS * FPS)), int(round(len(usable) * FAST_CUT_INTERVAL * FPS))),
+        ),
+    )
+    cut_count = max(2, min(len(usable), FAST_CUT_MAX_IMAGES, int(math.ceil(fast_frames / max(1, round(FAST_CUT_INTERVAL * FPS))))))
+    cut_paths = usable[:cut_count]
+    base_frames = max(1, fast_frames // cut_count)
+    extra_frames = fast_frames % cut_count
+
+    segment_dir = out_path.parent / f"{out_path.stem}_fastcut"
+    segment_dir.mkdir(parents=True, exist_ok=True)
+    segments: list[Path] = []
+    for idx, image_path in enumerate(cut_paths):
+        segment_path = segment_dir / f"cut_{idx + 1:02d}.mp4"
+        _fast_cut_segment(image_path, segment_path, base_frames + (1 if idx < extra_frames else 0), idx)
+        segments.append(segment_path)
+
+    remaining_frames = total_frames - fast_frames
+    if remaining_frames > 0:
+        hold_path = segment_dir / "hold.mp4"
+        _fast_cut_segment(cut_paths[-1], hold_path, remaining_frames, len(cut_paths))
+        segments.append(hold_path)
+
+    try:
+        _concat(segments, out_path)
+    finally:
+        list_path = out_path.with_suffix(".txt")
+        if list_path.exists():
+            list_path.unlink()
+        if segment_dir.exists():
+            shutil.rmtree(segment_dir)
+
+
 def _concat(clips: list[Path], out_path: Path) -> None:
     list_path = out_path.with_suffix(".txt")
     list_path.write_text("".join(f"file '{p.as_posix()}'\n" for p in clips), encoding="utf-8")
     _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(out_path)])
+
+
+def _apply_intro_visual_filter(input_path: Path, out_path: Path, intro_template: str, duration: float) -> None:
+    filters: list[str] = []
+    if intro_template == "soft":
+        filters.extend(["eq=brightness=0.02:saturation=1.05", "fade=t=in:st=0:d=0.45"])
+    elif intro_template == "clean":
+        filters.extend(["vignette=PI/7:0.35", "fade=t=in:st=0:d=0.5"])
+    elif intro_template == "impact":
+        filters.extend(["eq=contrast=1.08:saturation=1.12", "vignette=PI/6:0.42", "fade=t=in:st=0:d=0.35"])
+    if intro_template in FINAL_FILTER_TEMPLATES and duration > 0.8:
+        filters.append(f"fade=t=out:st={max(duration - 0.4, 0):.3f}:d=0.4")
+    if not filters:
+        if input_path.resolve() != out_path.resolve():
+            shutil.copy2(input_path, out_path)
+        return
+    _run([
+        "ffmpeg", "-y", "-i", str(input_path),
+        "-vf", ",".join(filters),
+        "-t", f"{duration:.3f}",
+        "-an",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-pix_fmt", "yuv420p", str(out_path),
+    ])
 
 
 def _concat_audio(files: list[Path], out_path: Path) -> None:
@@ -394,6 +486,116 @@ def normalize_story(story: dict[str, Any]) -> dict[str, Any]:
     return {"title": title, "style_preset": str(story.get("style_preset") or DEFAULT_STYLE), "shots": normalized}
 
 
+def _workspace_path_from_url(url: str) -> Path | None:
+    prefix = "/workspace/"
+    if not isinstance(url, str) or not url.startswith(prefix):
+        return None
+    candidate = (WORKSPACE / url[len(prefix):]).resolve()
+    try:
+        candidate.relative_to(WORKSPACE.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
+def _project_image_for_index(project_dir: Path, index: int) -> Path | None:
+    stem = f"shot_{index:02d}"
+    image_dir = project_dir / "images"
+    for suffix in (".png", ".jpg", ".jpeg", ".webp"):
+        candidate = image_dir / f"{stem}{suffix}"
+        if candidate.exists():
+            return candidate
+    matches = sorted(image_dir.glob(f"{stem}.*"))
+    return matches[0] if matches else None
+
+
+def _preview_image_paths(
+    original_story: dict[str, Any],
+    normalized_story: dict[str, Any],
+    project_dir: Path,
+    preview_dir: Path,
+) -> list[Path]:
+    source_shots = original_story.get("shots") if isinstance(original_story.get("shots"), list) else []
+    normalized_shots = normalized_story["shots"]
+    image_dir = preview_dir / "images"
+    image_dir.mkdir(parents=True, exist_ok=True)
+    image_paths: list[Path] = []
+    for idx, normalized_shot in enumerate(normalized_shots, 1):
+        raw_shot = source_shots[idx - 1] if idx - 1 < len(source_shots) and isinstance(source_shots[idx - 1], dict) else {}
+        candidates: list[Path] = []
+        raw_path = str(raw_shot.get("image_path") or normalized_shot.get("image_path") or "").strip()
+        if raw_path:
+            candidates.append(Path(raw_path))
+        raw_url = str(raw_shot.get("image_url") or "").strip()
+        workspace_path = _workspace_path_from_url(raw_url)
+        if workspace_path:
+            candidates.append(workspace_path)
+        project_image = _project_image_for_index(project_dir, idx)
+        if project_image:
+            candidates.append(project_image)
+
+        source = next((path for path in candidates if path.exists()), None)
+        if source:
+            image_paths.append(source)
+            continue
+
+        fallback = image_dir / f"shot_{idx:02d}.png"
+        render_placeholder_image(normalized_shot, fallback, idx - 1, normalized_story["title"])
+        image_paths.append(fallback)
+    return image_paths
+
+
+def render_intro_previews(
+    story: dict[str, Any],
+    project_id: str | None = None,
+    templates: list[str] | None = None,
+    duration: float = 3.0,
+) -> dict[str, Any]:
+    clean = normalize_story(story)
+    project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_preview_") + uuid.uuid4().hex[:8]
+    project_dir = WORKSPACE / project_id
+    preview_dir = project_dir / "previews" / "intro_templates"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+
+    duration = max(1.2, min(6.0, float(duration or 3.0)))
+    requested_templates = templates or INTRO_PREVIEW_TEMPLATES
+    valid_templates = [template for template in requested_templates if template in INTRO_TEMPLATES]
+    if not valid_templates:
+        valid_templates = INTRO_PREVIEW_TEMPLATES
+
+    image_paths = _preview_image_paths(story, clean, project_dir, preview_dir)
+    if not image_paths:
+        raise RenderError("No images available for intro preview")
+
+    items: list[dict[str, str]] = []
+    for template in valid_templates:
+        out_path = preview_dir / f"{template}.mp4"
+        if template == FAST_CUT_TEMPLATE:
+            _fast_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration)
+        elif template in FINAL_FILTER_TEMPLATES:
+            raw_path = preview_dir / f"{template}.raw.mp4"
+            try:
+                _clip(image_paths[0], raw_path, duration, template)
+                _apply_intro_visual_filter(raw_path, out_path, template, duration)
+            finally:
+                if raw_path.exists():
+                    raw_path.unlink()
+        else:
+            _clip(image_paths[0], out_path, duration, template)
+        items.append({
+            "id": template,
+            "video": f"/workspace/{project_id}/previews/intro_templates/{template}.mp4",
+        })
+    preview_image_dir = preview_dir / "images"
+    if preview_image_dir.exists():
+        shutil.rmtree(preview_image_dir)
+    return {
+        "project_id": project_id,
+        "duration_sec": duration,
+        "items": items,
+    }
+
+
 def render_story(
     story: dict[str, Any],
     voice: str = "zh-CN-YunxiNeural",
@@ -469,12 +671,12 @@ def render_story(
     _write_subtitles(shots, srt_path, ass_path)
     script_path.write_text(json.dumps({**clean, "audio_duration": total}, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    clips: list[Path] = []
+    image_paths: list[Path] = []
     for idx, shot in enumerate(shots):
         report(
-            0.5 + (idx / max(shot_total, 1)) * 0.32,
-            "生成镜头视频",
-            f"正在生成第 {idx + 1}/{shot_total} 个镜头",
+            0.5 + (idx / max(shot_total, 1)) * 0.12,
+            "准备镜头图片",
+            f"正在准备第 {idx + 1}/{shot_total} 张镜头图片",
             current=idx + 1,
             total=shot_total,
         )
@@ -484,8 +686,24 @@ def render_story(
             shutil.copy2(provided, img_path)
         else:
             render_placeholder_image(shot, img_path, idx, clean["title"])
+        image_paths.append(img_path)
+
+    clips: list[Path] = []
+    for idx, shot in enumerate(shots):
+        report(
+            0.62 + (idx / max(shot_total, 1)) * 0.2,
+            "生成镜头视频",
+            f"正在生成第 {idx + 1}/{shot_total} 个镜头",
+            current=idx + 1,
+            total=shot_total,
+        )
+        img_path = image_paths[idx]
         clip_path = clips_dir / f"shot_{idx + 1:02d}.mp4"
-        _clip(img_path, clip_path, float(shot["end"]) - float(shot["start"]), intro_template if idx == 0 else "none")
+        clip_duration = float(shot["end"]) - float(shot["start"])
+        if idx == 0 and intro_template == FAST_CUT_TEMPLATE:
+            _fast_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration)
+        else:
+            _clip(img_path, clip_path, clip_duration, intro_template if idx == 0 else "none")
         clips.append(clip_path)
     report(0.84, "合并镜头", "正在合并镜头视频")
     _concat(clips, merged_path)

@@ -1087,6 +1087,99 @@ textarea {
   gap: 8px;
 }
 
+.intro-preview-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.intro-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.intro-preview-head h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.intro-preview-head p {
+  margin: 3px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.intro-preview-grid {
+  display: grid;
+  grid-auto-columns: minmax(120px, 150px);
+  grid-auto-flow: column;
+  gap: 12px;
+  min-height: 236px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.intro-preview-card {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.intro-preview-card.active {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, #fff);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.intro-preview-card video {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  border-radius: calc(var(--radius-md) - 2px);
+  object-fit: cover;
+}
+
+.intro-preview-card span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.intro-preview-empty {
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  min-height: 220px;
+  border: 1px dashed var(--border-secondary);
+  border-radius: var(--radius-md);
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.intro-preview-empty.error {
+  color: var(--state-error);
+}
+
 .render-progress {
   display: grid;
   gap: 10px;
@@ -1277,6 +1370,15 @@ pre {
   .project-create-panel,
   .copy-editor-grid {
     grid-template-columns: 1fr;
+  }
+
+  .intro-preview-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .intro-preview-grid {
+    grid-auto-columns: minmax(112px, 136px);
   }
 
   .shot-grid {
