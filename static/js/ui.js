@@ -76,7 +76,7 @@ export function createUi() {
 
   function setProjectMeta(label, detail = "") {
     if (els.projectLabel) els.projectLabel.textContent = label || "未保存项目";
-    if (els.projectSaveMeta) els.projectSaveMeta.textContent = detail || "尚未保存";
+    if (els.projectSaveMeta) els.projectSaveMeta.textContent = detail || "自动保存开启";
   }
 
   function openSettings() {

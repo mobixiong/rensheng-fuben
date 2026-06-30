@@ -65,17 +65,25 @@
       </aside>
 
       <main class="app-main">
-        <header class="topbar">
-          <div class="project-switch">
+        <header class="topbar is-collapsed" id="projectTopbar">
+          <button id="sidebarToggle" class="icon-button sidebar-toggle" type="button" aria-label="收起侧边栏" aria-pressed="false">
+            <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="3" y="4" width="14" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6" />
+              <path d="M8 4v12M12.5 7.5 10 10l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <button id="topbarToggle" class="project-switch topbar-summary" type="button" aria-expanded="false" aria-controls="topbarDetails">
             <span>当前项目</span>
             <strong id="projectLabel">未保存项目</strong>
-            <em id="projectSaveMeta">尚未保存</em>
+            <em id="projectSaveMeta">自动保存开启</em>
+          </button>
+          <div class="topbar-details" id="topbarDetails">
+            <select id="projectPicker" aria-label="切换项目">
+              <option value="">未保存项目</option>
+            </select>
+            <button id="saveProject" class="secondary-pill" type="button">立即保存</button>
           </div>
-          <select id="projectPicker" aria-label="切换项目">
-            <option value="">未保存项目</option>
-          </select>
           <div class="topbar-spacer"></div>
-          <button id="saveProject" class="secondary-pill" type="button">保存项目</button>
           <div class="status-pill" id="status">就绪</div>
         </header>
 
@@ -165,19 +173,19 @@
             </section>
           </section>
 
-          <section class="tab-view" id="tab-image">
+          <section class="tab-view image-prompt-collapsed" id="tab-image">
             <div class="page-head">
               <div>
                 <h1>分镜工作台</h1>
                 <p id="imageProjectSubtitle">当前项目分镜图生成</p>
               </div>
               <div class="page-actions">
-                <button id="resetImagePrompt" class="secondary-pill" type="button">图片提示词</button>
+                <button id="toggleImagePrompt" class="secondary-pill" type="button" aria-expanded="false" aria-controls="imagePromptPanel">图片提示词</button>
                 <button id="generateImages" class="primary-pill" type="button">批量生成图片</button>
               </div>
             </div>
 
-            <section class="image-prompt-panel">
+            <section class="image-prompt-panel is-collapsed" id="imagePromptPanel" aria-hidden="true">
               <div class="flow-section-head">
                 <strong>图片提示词</strong>
                 <div class="panel-actions">
@@ -186,20 +194,25 @@
                     <option>短视频插画</option>
                     <option>电影感</option>
                   </select>
-                  <button id="refreshGallery" class="text-action" type="button">刷新列表</button>
+                  <button id="resetImagePrompt" class="text-action" type="button">恢复默认</button>
                 </div>
               </div>
               <textarea id="imagePrompt" class="prompt-textarea" spellcheck="false"></textarea>
               <div class="panel-foot">
                 <span id="imagePromptMeta">0 字</span>
-                <div id="selectedShotLabel">未选择镜头</div>
               </div>
             </section>
 
             <section class="gallery-panel">
               <div class="image-toolbar">
-                <strong>分镜图片</strong>
-                <button id="redrawSelected" class="secondary-pill" type="button">重抽选中图片</button>
+                <div class="toolbar-title">
+                  <strong>分镜图片</strong>
+                  <span id="selectedShotLabel">未选择镜头</span>
+                </div>
+                <div class="panel-actions">
+                  <button id="refreshGallery" class="text-action" type="button">刷新列表</button>
+                  <button id="redrawSelected" class="secondary-pill" type="button">重抽选中图片</button>
+                </div>
               </div>
               <div class="shot-grid" id="shotGrid"></div>
             </section>

@@ -21,6 +21,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
   function scheduleSave() {
     if (state.restoringProject || state.imageGenerationActive) return;
     clearTimeout(state.saveTimer);
+    ui.setProjectMeta(state.currentProjectId || "未保存项目", "自动保存待处理");
     state.saveTimer = window.setTimeout(saveNow, PROJECT_SAVE_DELAY_MS);
   }
 
@@ -33,12 +34,12 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       if (applyState && !state.imageGenerationActive && data.state) {
         applyProjectState(data.state, { preserveTab: true, fromSave: true });
       }
-      ui.setProjectMeta(state.currentProjectId, data.saved_at ? `已保存 ${data.saved_at}` : "已保存");
+      ui.setProjectMeta(state.currentProjectId, data.saved_at ? `自动保存 ${data.saved_at}` : "自动保存完成");
       if (els.projectPicker && state.currentProjectId) els.projectPicker.value = state.currentProjectId;
       if (refreshProjects) await loadList();
       return data;
     } catch (err) {
-      ui.setProjectMeta(state.currentProjectId || "保存失败", "保存失败");
+      ui.setProjectMeta(state.currentProjectId || "自动保存失败", "自动保存失败");
       console.warn("Project autosave failed", err);
       return null;
     }
@@ -65,7 +66,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     state.currentProjectId = projectStateData.project_id || state.currentProjectId || "";
     ui.setProjectMeta(
       state.currentProjectId,
-      projectStateData.saved_at ? `${options.fromSave ? "已保存" : "已恢复"} ${projectStateData.saved_at}` : "已恢复",
+      projectStateData.saved_at ? `${options.fromSave ? "自动保存" : "已恢复"} ${projectStateData.saved_at}` : "已恢复",
     );
     if (typeof projectStateData.topic === "string") els.topic.value = projectStateData.topic;
     if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
@@ -153,7 +154,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     els.result.textContent = "{}";
     storyView.write({ title: "", style_preset: "", shots: [] }, { scheduleSave: false });
     storyView.updatePromptMeta();
-    ui.setProjectMeta("未保存项目", "新项目");
+    ui.setProjectMeta("未保存项目", "自动保存开启");
     if (els.projectPicker) els.projectPicker.value = "";
     setActiveTab("copy");
     settings.persist();

@@ -20,6 +20,63 @@ const state = {
 
 let projectStore;
 
+const layoutKeys = {
+  sidebar: "lifeCopy.sidebarCollapsed",
+  topbar: "lifeCopy.topbarExpanded",
+  imagePrompt: "lifeCopy.imagePromptExpanded",
+};
+
+function readLayoutFlag(key, fallback = false) {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === null ? fallback : value === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLayoutFlag(key, value) {
+  try {
+    window.localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // Local storage can be unavailable in restricted browser modes.
+  }
+}
+
+function setSidebarCollapsed(collapsed, persist = true) {
+  document.querySelector(".app-frame")?.classList.toggle("sidebar-collapsed", collapsed);
+  $("sidebarToggle")?.setAttribute("aria-pressed", String(collapsed));
+  $("sidebarToggle")?.setAttribute("aria-label", collapsed ? "展开侧边栏" : "收起侧边栏");
+  if (persist) writeLayoutFlag(layoutKeys.sidebar, collapsed);
+}
+
+function setTopbarExpanded(expanded, persist = true) {
+  const topbar = $("projectTopbar");
+  topbar?.classList.toggle("is-expanded", expanded);
+  topbar?.classList.toggle("is-collapsed", !expanded);
+  $("topbarToggle")?.setAttribute("aria-expanded", String(expanded));
+  if (persist) writeLayoutFlag(layoutKeys.topbar, expanded);
+}
+
+function setImagePromptExpanded(expanded, persist = true) {
+  const panel = $("imagePromptPanel");
+  $("tab-image")?.classList.toggle("image-prompt-collapsed", !expanded);
+  panel?.classList.toggle("is-collapsed", !expanded);
+  panel?.setAttribute("aria-hidden", String(!expanded));
+  const button = $("toggleImagePrompt");
+  if (button) {
+    button.setAttribute("aria-expanded", String(expanded));
+    button.textContent = expanded ? "收起提示词" : "图片提示词";
+  }
+  if (persist) writeLayoutFlag(layoutKeys.imagePrompt, expanded);
+}
+
+function restoreLayoutPrefs() {
+  setSidebarCollapsed(readLayoutFlag(layoutKeys.sidebar), false);
+  setTopbarExpanded(readLayoutFlag(layoutKeys.topbar), false);
+  setImagePromptExpanded(readLayoutFlag(layoutKeys.imagePrompt, false), false);
+}
+
 function setSelectedShot(index) {
   state.selectedShot = index;
 }
@@ -88,6 +145,15 @@ function bindEvents() {
   $("refreshGallery").addEventListener("click", storyView.renderShotGrid);
   $("validate").addEventListener("click", () => storyView.validate(els.result, ui.setStatus));
   $("render").addEventListener("click", workflow.renderVideo);
+  $("sidebarToggle")?.addEventListener("click", () => {
+    setSidebarCollapsed(!document.querySelector(".app-frame")?.classList.contains("sidebar-collapsed"));
+  });
+  $("topbarToggle")?.addEventListener("click", () => {
+    setTopbarExpanded(!$("projectTopbar")?.classList.contains("is-expanded"));
+  });
+  $("toggleImagePrompt")?.addEventListener("click", () => {
+    setImagePromptExpanded($("tab-image")?.classList.contains("image-prompt-collapsed"));
+  });
   $("saveProject").addEventListener("click", async () => {
     ui.setStatus("保存中", "busy");
     await projectStore.saveNow();
@@ -148,6 +214,7 @@ function bindEvents() {
 
 async function boot() {
   bindEvents();
+  restoreLayoutPrefs();
   settings.load();
   if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
   await settings.loadPromptDefaults(api.fetchJson, storyView.updatePromptMeta).catch(() => storyView.updatePromptMeta());
