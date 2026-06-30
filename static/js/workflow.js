@@ -1,4 +1,4 @@
-import { IMAGE_RETRY_LIMIT } from "./constants.js";
+import { IMAGE_CONCURRENCY_LIMIT, IMAGE_RETRY_LIMIT } from "./constants.js";
 
 function createImageProjectId() {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -31,6 +31,28 @@ function normalizeShotIndexes(indexes, shotsLength) {
       .map(Number)
       .filter((index) => Number.isInteger(index) && index >= 0 && index < shotsLength),
   )).sort((a, b) => a - b);
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  const workerCount = Math.min(items.length, Math.max(1, Number(limit) || 1));
+  let cursor = 0;
+
+  async function runNext() {
+    while (cursor < items.length) {
+      const current = cursor;
+      cursor += 1;
+      try {
+        results[current] = { status: "fulfilled", value: await worker(items[current], current) };
+      } catch (reason) {
+        results[current] = { status: "rejected", reason };
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, runNext));
+  return results;
 }
 
 export function createWorkflow({ els, ui, api, settings, storyView, projectStore, state, setActiveTab }) {
@@ -224,36 +246,33 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
       }
 
       let completed = 0;
-      const tasks = pendingIndexes.map((index) =>
-        regenerateShotWithRetry(story, index)
-          .then(async (data) => {
-            story = mergeShotImageResult(story, data, index);
-            completed += 1;
+      const results = await runWithConcurrency(pendingIndexes, IMAGE_CONCURRENCY_LIMIT, async (index) => {
+        try {
+          const data = await regenerateShotWithRetry(story, index);
+          story = mergeShotImageResult(story, data, index);
+          completed += 1;
+          storyView.write(story);
+          els.result.textContent = JSON.stringify({
+            "图片生成": "并行进行中",
+            "已完成": completed,
+            "待生成数": pendingIndexes.length,
+            "总镜头数": shots.length,
+            "最近完成镜头": index + 1,
+            "项目编号": story.project_id,
+          }, null, 2);
+          ui.setStatus(`生图 ${completed}/${pendingIndexes.length}`, "busy");
+          await projectStore.queueSave({ applyState: false, refreshProjects: false });
+          return data;
+        } catch (err) {
+          if (story.shots?.[index]) {
+            story.shots[index]._image_status = "error";
+            story.shots[index]._image_error = String(err.message || err);
             storyView.write(story);
-            els.result.textContent = JSON.stringify({
-              "图片生成": "并行进行中",
-              "已完成": completed,
-              "待生成数": pendingIndexes.length,
-              "总镜头数": shots.length,
-              "最近完成镜头": index + 1,
-              "项目编号": story.project_id,
-            }, null, 2);
-            ui.setStatus(`生图 ${completed}/${pendingIndexes.length}`, "busy");
             await projectStore.queueSave({ applyState: false, refreshProjects: false });
-            return data;
-          })
-          .catch(async (err) => {
-            if (story.shots?.[index]) {
-              story.shots[index]._image_status = "error";
-              story.shots[index]._image_error = String(err.message || err);
-              storyView.write(story);
-              await projectStore.queueSave({ applyState: false, refreshProjects: false });
-            }
-            throw err;
-          })
-      );
-
-      const results = await Promise.allSettled(tasks);
+          }
+          throw err;
+        }
+      });
       const failed = results.filter((item) => item.status === "rejected");
       if (failed.length) {
         throw new Error(`并行生图完成 ${completed}/${pendingIndexes.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
@@ -343,35 +362,32 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
       storyView.write(story);
 
       let completed = 0;
-      const tasks = redrawIndexes.map((index) =>
-        regenerateShotWithRetry(story, index)
-          .then(async (data) => {
-            story = mergeShotImageResult(story, data, index);
-            completed += 1;
+      const results = await runWithConcurrency(redrawIndexes, IMAGE_CONCURRENCY_LIMIT, async (index) => {
+        try {
+          const data = await regenerateShotWithRetry(story, index);
+          story = mergeShotImageResult(story, data, index);
+          completed += 1;
+          storyView.write(story);
+          els.result.textContent = JSON.stringify({
+            "批量重抽": "进行中",
+            "已完成": completed,
+            "总数": redrawIndexes.length,
+            "最近完成镜头": index + 1,
+            "项目编号": story.project_id,
+          }, null, 2);
+          ui.setStatus(`重抽 ${completed}/${redrawIndexes.length}`, "busy");
+          await projectStore.queueSave({ applyState: false, refreshProjects: false });
+          return data;
+        } catch (err) {
+          if (story.shots?.[index]) {
+            story.shots[index]._image_status = "error";
+            story.shots[index]._image_error = String(err.message || err);
             storyView.write(story);
-            els.result.textContent = JSON.stringify({
-              "批量重抽": "进行中",
-              "已完成": completed,
-              "总数": redrawIndexes.length,
-              "最近完成镜头": index + 1,
-              "项目编号": story.project_id,
-            }, null, 2);
-            ui.setStatus(`重抽 ${completed}/${redrawIndexes.length}`, "busy");
             await projectStore.queueSave({ applyState: false, refreshProjects: false });
-            return data;
-          })
-          .catch(async (err) => {
-            if (story.shots?.[index]) {
-              story.shots[index]._image_status = "error";
-              story.shots[index]._image_error = String(err.message || err);
-              storyView.write(story);
-              await projectStore.queueSave({ applyState: false, refreshProjects: false });
-            }
-            throw err;
-          })
-      );
-
-      const results = await Promise.allSettled(tasks);
+          }
+          throw err;
+        }
+      });
       const failed = results.filter((item) => item.status === "rejected");
       if (failed.length) {
         throw new Error(`批量重抽完成 ${completed}/${redrawIndexes.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
