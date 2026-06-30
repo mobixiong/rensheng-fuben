@@ -1,4 +1,4 @@
-import { PROJECT_SAVE_DELAY_MS } from "./constants.js";
+import { PROJECT_PROGRESS_SAVE_INTERVAL_MS, PROJECT_SAVE_DELAY_MS } from "./constants.js";
 import { escapeHtml } from "./html.js";
 
 export function createProjectStore({ els, ui, api, storyView, state, settings, setActiveTab }) {
@@ -56,6 +56,15 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       .catch(() => null)
       .then(() => saveNow(options));
     return state.projectSaveQueue;
+  }
+
+  function queueProgressSave(options = {}) {
+    const now = Date.now();
+    if (now - (state.lastProgressSaveAt || 0) < PROJECT_PROGRESS_SAVE_INTERVAL_MS) {
+      return state.projectSaveQueue;
+    }
+    state.lastProgressSaveAt = now;
+    return queueSave(options);
   }
 
   async function ensureSaved(options = {}) {
@@ -178,6 +187,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     scheduleSave,
     saveNow,
     queueSave,
+    queueProgressSave,
     ensureSaved,
     mediaProjectId,
     applyProjectState,

@@ -55,6 +55,10 @@ async function runWithConcurrency(items, limit, worker) {
   return results;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export function createWorkflow({ els, ui, api, settings, storyView, projectStore, state, setActiveTab }) {
   async function testTextConnection() {
     settings.persist();
@@ -191,7 +195,7 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
         story.shots[index]._image_attempt = attempt + 1;
         delete story.shots[index]._image_error;
         storyView.write(story);
-        await projectStore.queueSave({ applyState: false, refreshProjects: false });
+        await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
       }
       try {
         return await api.postJson("/api/image/regenerate-shot", settings.imagePayload(story, { shot_index: index }));
@@ -201,7 +205,7 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
           story.shots[index]._image_status = "retrying";
           story.shots[index]._image_error = String(err.message || err);
           storyView.write(story);
-          await projectStore.queueSave({ applyState: false, refreshProjects: false });
+          await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
         }
       }
     }
@@ -261,14 +265,14 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
             "项目编号": story.project_id,
           }, null, 2);
           ui.setStatus(`生图 ${completed}/${pendingIndexes.length}`, "busy");
-          await projectStore.queueSave({ applyState: false, refreshProjects: false });
+          await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
           return data;
         } catch (err) {
           if (story.shots?.[index]) {
             story.shots[index]._image_status = "error";
             story.shots[index]._image_error = String(err.message || err);
             storyView.write(story);
-            await projectStore.queueSave({ applyState: false, refreshProjects: false });
+            await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
           }
           throw err;
         }
@@ -376,14 +380,14 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
             "项目编号": story.project_id,
           }, null, 2);
           ui.setStatus(`重抽 ${completed}/${redrawIndexes.length}`, "busy");
-          await projectStore.queueSave({ applyState: false, refreshProjects: false });
+          await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
           return data;
         } catch (err) {
           if (story.shots?.[index]) {
             story.shots[index]._image_status = "error";
             story.shots[index]._image_error = String(err.message || err);
             storyView.write(story);
-            await projectStore.queueSave({ applyState: false, refreshProjects: false });
+            await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
           }
           throw err;
         }
@@ -415,17 +419,33 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
   async function renderVideo() {
     settings.persist();
     ui.setBusy(true);
-    ui.setStatus("渲染中", "busy");
+    ui.setStatus("提交渲染", "busy");
     els.openVideo.hidden = true;
     els.preview.removeAttribute("src");
     try {
       await projectStore.ensureSaved();
-      const data = await api.postJson("/api/render", {
+      const payload = {
         story: storyView.read(),
         voice: els.voice.value,
         rate: els.rate.value,
         project_id: projectStore.mediaProjectId(),
-      });
+        cleanup_intermediate: true,
+      };
+      const job = await api.postJson("/api/render/jobs", payload);
+      let data = null;
+      for (;;) {
+        const status = await api.fetchJson(`/api/render/jobs/${encodeURIComponent(job.job_id)}`);
+        els.result.textContent = JSON.stringify(status, null, 2);
+        if (status.status === "complete") {
+          data = status.result;
+          break;
+        }
+        if (status.status === "error") {
+          throw new Error(status.error || "渲染失败");
+        }
+        ui.setStatus(status.status === "running" ? "渲染中" : "排队中", "busy");
+        await sleep(2000);
+      }
       els.result.textContent = JSON.stringify(data, null, 2);
       els.preview.src = data.video;
       els.openVideo.href = data.video;

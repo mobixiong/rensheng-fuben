@@ -1,6 +1,7 @@
 import json
 import re
 import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -23,6 +24,8 @@ COPY_PROMPT = ROOT / "prompt.txt"
 PROJECTS_DIR = WORKSPACE / "projects"
 ACTIVE_PROJECT = WORKSPACE / "active_project.json"
 LEGACY_PROJECT_STATE = WORKSPACE / "current_project.json"
+RENDER_JOBS: dict[str, dict[str, Any]] = {}
+RENDER_JOBS_LOCK = threading.Lock()
 
 try:
     from dotenv import load_dotenv
@@ -81,6 +84,7 @@ class RenderRequest(BaseModel):
     voice: str = "zh-CN-YunxiNeural"
     rate: str = "+12%"
     project_id: str | None = None
+    cleanup_intermediate: bool = True
 
 
 class ProjectActivateRequest(BaseModel):
@@ -247,6 +251,30 @@ def _project_summary(project_dir: Path) -> dict[str, Any] | None:
         "saved_at": saved_at,
         "project_url": f"/workspace/projects/{project_id}",
     }
+
+
+def _set_render_job(job_id: str, **updates: Any) -> None:
+    with RENDER_JOBS_LOCK:
+        job = RENDER_JOBS.setdefault(job_id, {})
+        job.update(updates)
+        job["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _render_job_worker(job_id: str, payload: dict[str, Any]) -> None:
+    _set_render_job(job_id, status="running", progress=0.1)
+    try:
+        data = render_story(
+            payload["story"],
+            payload.get("voice") or "zh-CN-YunxiNeural",
+            payload.get("rate") or "+12%",
+            payload.get("project_id"),
+            payload.get("cleanup_intermediate", True),
+        )
+        _set_render_job(job_id, status="complete", progress=1, result=data)
+    except RenderError as exc:
+        _set_render_job(job_id, status="error", progress=1, error=str(exc))
+    except Exception as exc:
+        _set_render_job(job_id, status="error", progress=1, error=str(exc))
 
 
 app = FastAPI(title="人生副本工作台", version="0.1.0")
@@ -423,11 +451,36 @@ def image_regenerate_shot(req: ImageRegenerateRequest) -> dict[str, Any]:
 @app.post("/api/render")
 def render(req: RenderRequest) -> dict[str, Any]:
     try:
-        return render_story(req.story, req.voice, req.rate, req.project_id)
+        return render_story(req.story, req.voice, req.rate, req.project_id, req.cleanup_intermediate)
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/render/jobs")
+def render_job_create(req: RenderRequest) -> dict[str, Any]:
+    job_id = uuid.uuid4().hex
+    with RENDER_JOBS_LOCK:
+        RENDER_JOBS[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 0,
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    thread = threading.Thread(target=_render_job_worker, args=(job_id, req.model_dump()), daemon=True)
+    thread.start()
+    return {"job_id": job_id, "status": "queued", "progress": 0}
+
+
+@app.get("/api/render/jobs/{job_id}")
+def render_job_get(job_id: str) -> dict[str, Any]:
+    with RENDER_JOBS_LOCK:
+        job = RENDER_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Render job not found")
+        return dict(job)
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

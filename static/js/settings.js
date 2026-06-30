@@ -4,9 +4,32 @@ import {
   SETTINGS_KEY,
 } from "./constants.js";
 
+const SECRET_SETTINGS_KEY = `${SETTINGS_KEY}-session-secrets`;
+
 export function createSettings({ els }) {
   let defaultCopyPrompt = "";
   let defaultImagePrompt = "";
+
+  function readJson(storage, key) {
+    try {
+      return JSON.parse(storage.getItem(key) || "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  function writeJson(storage, key, value) {
+    try {
+      storage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }
+
+  function cleanPersistedSettings(s) {
+    const cleaned = { ...s };
+    delete cleaned.apiKey;
+    delete cleaned.imageApiKey;
+    return cleaned;
+  }
 
   function applyTextProviderDefaults() {
     if (els.textProvider.value !== "gemini_web2api") return;
@@ -22,36 +45,46 @@ export function createSettings({ els }) {
   }
 
   function persist() {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    writeJson(localStorage, SETTINGS_KEY, {
       topic: els.topic.value,
       textProvider: els.textProvider.value,
       baseUrl: els.baseUrl.value,
       model: els.model.value,
-      apiKey: els.apiKey.value,
       imageProvider: els.imageProvider.value,
       imageBaseUrl: els.imageBaseUrl.value,
       imageModel: els.imageModel.value,
-      imageApiKey: els.imageApiKey.value,
       imageSize: els.imageSize.value,
       voice: els.voice.value,
       rate: els.rate.value,
       copyPrompt: els.copyPrompt.value,
       imagePrompt: els.imagePrompt.value,
-    }));
+    });
+    writeJson(sessionStorage, SECRET_SETTINGS_KEY, {
+      apiKey: els.apiKey.value,
+      imageApiKey: els.imageApiKey.value,
+    });
   }
 
   function load() {
     try {
-      const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+      const s = readJson(localStorage, SETTINGS_KEY);
+      const secrets = readJson(sessionStorage, SECRET_SETTINGS_KEY);
+      if (s.apiKey || s.imageApiKey) {
+        writeJson(sessionStorage, SECRET_SETTINGS_KEY, {
+          apiKey: secrets.apiKey || s.apiKey || "",
+          imageApiKey: secrets.imageApiKey || s.imageApiKey || "",
+        });
+        writeJson(localStorage, SETTINGS_KEY, cleanPersistedSettings(s));
+      }
       els.textProvider.value = ["openai", "gemini_web2api"].includes(s.textProvider) ? s.textProvider : "openai";
       if (s.topic) els.topic.value = s.topic;
       els.baseUrl.value = s.baseUrl || "";
       els.model.value = s.model || "";
-      els.apiKey.value = s.apiKey || "";
+      els.apiKey.value = secrets.apiKey || s.apiKey || "";
       els.imageProvider.value = s.imageProvider === "openai" ? s.imageProvider : "openai";
       els.imageBaseUrl.value = s.imageBaseUrl || "";
       els.imageModel.value = s.imageModel || "";
-      els.imageApiKey.value = s.imageApiKey || "";
+      els.imageApiKey.value = secrets.imageApiKey || s.imageApiKey || "";
       els.imageSize.value = ["9:16", "1:1", "16:9"].includes(s.imageSize) ? s.imageSize : "9:16";
       els.voice.value = s.voice || "zh-CN-YunxiNeural";
       els.rate.value = s.rate || "+12%";

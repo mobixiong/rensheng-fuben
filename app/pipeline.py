@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT / "workspace"
 W, H = 1080, 1920
 FPS = 30
+TTS_RETRY_COUNT = 3
 
 
 DEFAULT_STYLE = (
@@ -48,7 +49,18 @@ def _duration(path: Path) -> float:
 
 
 async def _tts(text: str, out_path: Path, voice: str, rate: str) -> None:
-    await edge_tts.Communicate(text, voice=voice, rate=rate).save(str(out_path))
+    last_error: Exception | None = None
+    for attempt in range(1, TTS_RETRY_COUNT + 1):
+        try:
+            await edge_tts.Communicate(text, voice=voice, rate=rate).save(str(out_path))
+            if out_path.exists() and out_path.stat().st_size > 0:
+                return
+            last_error = RenderError("TTS returned an empty audio file")
+        except Exception as exc:
+            last_error = exc
+        if attempt < TTS_RETRY_COUNT:
+            await asyncio.sleep(attempt)
+    raise RenderError(f"TTS failed after {TTS_RETRY_COUNT} attempts: {last_error}") from last_error
 
 
 def _font_path() -> str:
@@ -226,7 +238,11 @@ def _allocate(shots: list[dict[str, Any]], total: float) -> None:
 
 def _clip(image_path: Path, out_path: Path, duration: float) -> None:
     frames = max(1, int(duration * FPS))
-    vf = f"scale={W}:{H},zoompan=z='1+0.035*on/{frames}':d={frames}:s={W}x{H}:fps={FPS},format=yuv420p"
+    vf = (
+        f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
+        f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,"
+        f"zoompan=z='1+0.035*on/{frames}':d={frames}:s={W}x{H}:fps={FPS},format=yuv420p"
+    )
     _run([
         "ffmpeg", "-y", "-loop", "1", "-i", str(image_path),
         "-vf", vf, "-t", f"{duration:.3f}",
@@ -260,6 +276,19 @@ def _final(video: Path, audio: Path, ass: Path, out_path: Path, duration: float)
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
         str(out_path),
     ])
+
+
+def _cleanup_intermediate(project_dir: Path, audio_dir: Path, clips_dir: Path, merged_path: Path) -> None:
+    for path in [audio_dir, clips_dir]:
+        if path.exists():
+            shutil.rmtree(path)
+    for path in [
+        merged_path,
+        merged_path.with_suffix(".txt"),
+        (project_dir / "voice.audio.txt"),
+    ]:
+        if path.exists():
+            path.unlink()
 
 
 def _workspace_project_id(value: str | None) -> str:
@@ -296,7 +325,13 @@ def normalize_story(story: dict[str, Any]) -> dict[str, Any]:
     return {"title": title, "style_preset": str(story.get("style_preset") or DEFAULT_STYLE), "shots": normalized}
 
 
-def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: str = "+12%", project_id: str | None = None) -> dict[str, Any]:
+def render_story(
+    story: dict[str, Any],
+    voice: str = "zh-CN-YunxiNeural",
+    rate: str = "+12%",
+    project_id: str | None = None,
+    cleanup_intermediate: bool = True,
+) -> dict[str, Any]:
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
     project_dir = WORKSPACE / project_id
     images = project_dir / "images"
@@ -325,7 +360,8 @@ def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: 
         shot["start"] = cursor
         cursor += part_duration
         shot["end"] = cursor
-        shot["audio_path"] = str(part_path.resolve())
+        if not cleanup_intermediate:
+            shot["audio_path"] = str(part_path.resolve())
         voice_parts.append(part_path)
     _concat_audio(voice_parts, voice_path)
     total = _duration(voice_path)
@@ -347,6 +383,8 @@ def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: 
         clips.append(clip_path)
     _concat(clips, merged_path)
     _final(merged_path, voice_path, ass_path, final_path, total)
+    if cleanup_intermediate:
+        _cleanup_intermediate(project_dir, audio_dir, clips_dir, merged_path)
     return {
         "project_id": project_id,
         "title": clean["title"],
@@ -356,4 +394,5 @@ def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: 
         "srt": f"/workspace/{project_id}/subtitle.srt",
         "voice": f"/workspace/{project_id}/voice.mp3",
         "video": f"/workspace/{project_id}/final.mp4",
+        "cleanup_intermediate": cleanup_intermediate,
     }
