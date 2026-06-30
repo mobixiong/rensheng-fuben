@@ -241,6 +241,15 @@ def _concat(clips: list[Path], out_path: Path) -> None:
     _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(out_path)])
 
 
+def _concat_audio(files: list[Path], out_path: Path) -> None:
+    list_path = out_path.with_suffix(".audio.txt")
+    list_path.write_text("".join(f"file '{p.as_posix()}'\n" for p in files), encoding="utf-8")
+    _run([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
+        "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(out_path),
+    ])
+
+
 def _final(video: Path, audio: Path, ass: Path, out_path: Path, duration: float) -> None:
     ass_arg = ass.resolve().as_posix().replace(":", "\\:")
     _run([
@@ -291,8 +300,10 @@ def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: 
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
     project_dir = WORKSPACE / project_id
     assets = project_dir / "assets"
+    audio_dir = project_dir / "audio"
     clips_dir = project_dir / "clips"
     assets.mkdir(parents=True, exist_ok=True)
+    audio_dir.mkdir(parents=True, exist_ok=True)
     clips_dir.mkdir(parents=True, exist_ok=True)
 
     clean = normalize_story(story)
@@ -305,10 +316,21 @@ def render_story(story: dict[str, Any], voice: str = "zh-CN-YunxiNeural", rate: 
     final_path = project_dir / "final.mp4"
 
     script_path.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
-    text = "\n".join(s["voiceover"] for s in shots)
-    asyncio.run(_tts(text, voice_path, voice, rate))
+    voice_parts: list[Path] = []
+    cursor = 0.0
+    for idx, shot in enumerate(shots):
+        part_path = audio_dir / f"shot_{idx + 1:02d}.mp3"
+        asyncio.run(_tts(str(shot["voiceover"]), part_path, voice, rate))
+        part_duration = _duration(part_path)
+        shot["start"] = cursor
+        cursor += part_duration
+        shot["end"] = cursor
+        shot["audio_path"] = str(part_path.resolve())
+        voice_parts.append(part_path)
+    _concat_audio(voice_parts, voice_path)
     total = _duration(voice_path)
-    _allocate(shots, total)
+    if shots:
+        shots[-1]["end"] = total
     _write_subtitles(shots, srt_path, ass_path)
     script_path.write_text(json.dumps({**clean, "audio_duration": total}, ensure_ascii=False, indent=2), encoding="utf-8")
 
