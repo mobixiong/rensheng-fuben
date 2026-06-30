@@ -3,11 +3,11 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any
 
+from .paths import ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
+
 DEFAULT_PROMPT_PATH = ROOT / "prompts" / "story_shots.md"
 COPY_TO_STORY_PROMPT_PATH = ROOT / "prompts" / "copy_to_story.md"
 GEMINI_WEB2API_BASE_URL = "http://127.0.0.1:8081/v1"

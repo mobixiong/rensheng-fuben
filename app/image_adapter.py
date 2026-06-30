@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .paths import ROOT, WORKSPACE
 
-ROOT = Path(__file__).resolve().parents[1]
+
 IMAGE_PROMPT_PATH = ROOT / "prompts" / "image_style.md"
-WORKSPACE = ROOT / "workspace"
 
 
 class ImageError(RuntimeError):

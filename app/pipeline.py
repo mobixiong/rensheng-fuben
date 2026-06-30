@@ -6,17 +6,19 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-import edge_tts
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from .audio_assets import default_reveal_sfx_path, resolve_bgm_path
+from .errors import RenderError
+from .paths import WORKSPACE
+from .tts_adapter import TtsConfig, synthesize_tts
 
-ROOT = Path(__file__).resolve().parents[1]
-WORKSPACE = ROOT / "workspace"
 W, H = 1080, 1920
 FPS = 30
-TTS_RETRY_COUNT = 3
+INTRO_TEMPLATES = {"none", "clean", "soft", "impact", "life_copy_reveal"}
+FINAL_FILTER_TEMPLATES = {"clean", "soft", "impact"}
 
 
 DEFAULT_STYLE = (
@@ -26,14 +28,14 @@ DEFAULT_STYLE = (
 )
 
 
-class RenderError(RuntimeError):
-    pass
-
-
 def _run(cmd: list[str]) -> None:
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
     if proc.returncode != 0:
         raise RenderError(f"Command failed: {' '.join(cmd)}\n{proc.stderr[-3000:]}")
+
+
+def _ffmpeg_path_arg(path: Path) -> str:
+    return path.resolve().as_posix().replace(":", "\\:")
 
 
 def _duration(path: Path) -> float:
@@ -46,21 +48,6 @@ def _duration(path: Path) -> float:
     if proc.returncode != 0:
         raise RenderError(proc.stderr)
     return float(proc.stdout.strip())
-
-
-async def _tts(text: str, out_path: Path, voice: str, rate: str) -> None:
-    last_error: Exception | None = None
-    for attempt in range(1, TTS_RETRY_COUNT + 1):
-        try:
-            await edge_tts.Communicate(text, voice=voice, rate=rate).save(str(out_path))
-            if out_path.exists() and out_path.stat().st_size > 0:
-                return
-            last_error = RenderError("TTS returned an empty audio file")
-        except Exception as exc:
-            last_error = exc
-        if attempt < TTS_RETRY_COUNT:
-            await asyncio.sleep(attempt)
-    raise RenderError(f"TTS failed after {TTS_RETRY_COUNT} attempts: {last_error}") from last_error
 
 
 def _font_path() -> str:
@@ -236,8 +223,33 @@ def _allocate(shots: list[dict[str, Any]], total: float) -> None:
     shots[-1]["end"] = total
 
 
-def _clip(image_path: Path, out_path: Path, duration: float) -> None:
+def _clip(image_path: Path, out_path: Path, duration: float, intro_template: str = "none") -> None:
     frames = max(1, int(duration * FPS))
+    if intro_template in {"life_copy_reveal", "clean", "impact"}:
+        reveal_duration = min(0.75, max(0.22, duration * 0.35))
+        if intro_template == "impact":
+            reveal_duration = min(0.45, max(0.18, duration * 0.25))
+        image_vf = (
+            f"scale={W}:{H}:force_original_aspect_ratio=increase,"
+            f"crop={W}:{H},"
+            f"zoompan=z='1.075-0.075*on/{frames}':d={frames}:s={W}x{H}:fps={FPS},"
+            "format=yuv420p"
+        )
+        filter_complex = (
+            f"[1:v]{image_vf}[img];"
+            f"[0:v][img]xfade=transition=smoothdown:duration={reveal_duration:.3f}:offset=0,format=yuv420p[v]"
+        )
+        _run([
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:r={FPS}:d={duration:.3f}",
+            "-loop", "1", "-i", str(image_path),
+            "-filter_complex", filter_complex,
+            "-map", "[v]", "-t", f"{duration:.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-pix_fmt", "yuv420p", str(out_path),
+        ])
+        return
+
     vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
         f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,"
@@ -266,11 +278,68 @@ def _concat_audio(files: list[Path], out_path: Path) -> None:
     ])
 
 
-def _final(video: Path, audio: Path, ass: Path, out_path: Path, duration: float) -> None:
-    ass_arg = ass.resolve().as_posix().replace(":", "\\:")
+def _video_filter(ass: Path, intro_template: str, duration: float) -> str:
+    ass_arg = _ffmpeg_path_arg(ass)
+    filters = [f"ass='{ass_arg}'"]
+    if intro_template == "soft":
+        filters.extend(["eq=brightness=0.02:saturation=1.05", "fade=t=in:st=0:d=0.45"])
+    elif intro_template == "clean":
+        filters.extend(["vignette=PI/7:0.35", "fade=t=in:st=0:d=0.5"])
+    elif intro_template == "impact":
+        filters.extend(["eq=contrast=1.08:saturation=1.12", "vignette=PI/6:0.42", "fade=t=in:st=0:d=0.35"])
+    if intro_template in FINAL_FILTER_TEMPLATES and duration > 0.8:
+        filters.append(f"fade=t=out:st={max(duration - 0.4, 0):.3f}:d=0.4")
+    return ",".join(filters)
+
+
+def _final(
+    video: Path,
+    audio: Path,
+    ass: Path,
+    out_path: Path,
+    duration: float,
+    intro_template: str = "none",
+    bgm_path: Path | None = None,
+    sfx_path: Path | None = None,
+    sfx_offsets: list[float] | None = None,
+) -> None:
+    intro_template = intro_template if intro_template in INTRO_TEMPLATES else "none"
+    vf = _video_filter(ass, intro_template, duration)
+    sfx_offsets = [offset for offset in (sfx_offsets or []) if 0 <= float(offset) < duration]
+    if bgm_path or (sfx_path and sfx_offsets):
+        cmd = ["ffmpeg", "-y", "-i", str(video), "-i", str(audio)]
+        filters = [f"[0:v]{vf}[vout]", "[1:a]volume=1.0[a0]"]
+        audio_labels = ["[a0]"]
+        next_input = 2
+
+        if bgm_path:
+            cmd.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
+            filters.append(f"[{next_input}:a]volume=0.18,atrim=0:{duration:.3f},asetpts=PTS-STARTPTS[bgm]")
+            audio_labels.append("[bgm]")
+            next_input += 1
+
+        if sfx_path:
+            for idx, offset in enumerate(sfx_offsets):
+                cmd.extend(["-i", str(sfx_path)])
+                delay_ms = max(0, int(round(float(offset) * 1000)))
+                label = f"sfx{idx}"
+                filters.append(f"[{next_input}:a]volume=0.72,adelay={delay_ms}:all=1[{label}]")
+                audio_labels.append(f"[{label}]")
+                next_input += 1
+
+        filters.append(f"{''.join(audio_labels)}amix=inputs={len(audio_labels)}:duration=first:dropout_transition=2[aout]")
+        _run([
+            *cmd,
+            "-filter_complex", ";".join(filters),
+            "-map", "[vout]", "-map", "[aout]", "-t", f"{duration:.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
+            str(out_path),
+        ])
+        return
     _run([
         "ffmpeg", "-y", "-i", str(video), "-i", str(audio),
-        "-vf", f"ass='{ass_arg}'",
+        "-vf", vf,
         "-map", "0:v", "-map", "1:a", "-t", f"{duration:.3f}",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
@@ -329,9 +398,24 @@ def render_story(
     story: dict[str, Any],
     voice: str = "zh-CN-YunxiNeural",
     rate: str = "+12%",
+    tts_config: TtsConfig | None = None,
     project_id: str | None = None,
     cleanup_intermediate: bool = True,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
+    intro_template: str = "none",
+    bgm_id: str | None = None,
 ) -> dict[str, Any]:
+    def report(progress: float, stage: str, detail: str = "", **extra: Any) -> None:
+        if not progress_callback:
+            return
+        payload = {
+            "progress": max(0.0, min(0.99, float(progress))),
+            "stage": stage,
+            "detail": detail,
+            **extra,
+        }
+        progress_callback(payload)
+
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
     project_dir = WORKSPACE / project_id
     images = project_dir / "images"
@@ -341,21 +425,34 @@ def render_story(
     audio_dir.mkdir(parents=True, exist_ok=True)
     clips_dir.mkdir(parents=True, exist_ok=True)
 
+    report(0.02, "准备渲染", "检查分镜和项目目录")
     clean = normalize_story(story)
     shots = clean["shots"]
+    shot_total = len(shots)
     script_path = project_dir / "script.json"
     voice_path = project_dir / "voice.mp3"
     srt_path = project_dir / "subtitle.srt"
     ass_path = project_dir / "subtitle.ass"
     merged_path = project_dir / "storyboard_merged.mp4"
     final_path = project_dir / "final.mp4"
+    intro_template = intro_template if intro_template in INTRO_TEMPLATES else "none"
+    bgm_path = resolve_bgm_path(bgm_id)
+    reveal_sfx_path = default_reveal_sfx_path(intro_template)
+    tts = tts_config or TtsConfig.from_payload({"voice": voice, "rate": rate})
 
     script_path.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
     voice_parts: list[Path] = []
     cursor = 0.0
     for idx, shot in enumerate(shots):
+        report(
+            0.08 + (idx / max(shot_total, 1)) * 0.3,
+            "生成配音",
+            f"正在生成第 {idx + 1}/{shot_total} 段配音",
+            current=idx + 1,
+            total=shot_total,
+        )
         part_path = audio_dir / f"shot_{idx + 1:02d}.mp3"
-        asyncio.run(_tts(str(shot["voiceover"]), part_path, voice, rate))
+        asyncio.run(synthesize_tts(str(shot["voiceover"]), part_path, tts))
         part_duration = _duration(part_path)
         shot["start"] = cursor
         cursor += part_duration
@@ -363,15 +460,24 @@ def render_story(
         if not cleanup_intermediate:
             shot["audio_path"] = str(part_path.resolve())
         voice_parts.append(part_path)
+    report(0.4, "合并配音", "正在合并全部配音片段")
     _concat_audio(voice_parts, voice_path)
     total = _duration(voice_path)
     if shots:
         shots[-1]["end"] = total
+    report(0.46, "生成字幕", "正在写入 SRT 和 ASS 字幕")
     _write_subtitles(shots, srt_path, ass_path)
     script_path.write_text(json.dumps({**clean, "audio_duration": total}, ensure_ascii=False, indent=2), encoding="utf-8")
 
     clips: list[Path] = []
     for idx, shot in enumerate(shots):
+        report(
+            0.5 + (idx / max(shot_total, 1)) * 0.32,
+            "生成镜头视频",
+            f"正在生成第 {idx + 1}/{shot_total} 个镜头",
+            current=idx + 1,
+            total=shot_total,
+        )
         img_path = images / f"shot_{idx + 1:02d}.png"
         provided = Path(shot["image_path"]) if shot.get("image_path") else None
         if provided and provided.exists():
@@ -379,11 +485,24 @@ def render_story(
         else:
             render_placeholder_image(shot, img_path, idx, clean["title"])
         clip_path = clips_dir / f"shot_{idx + 1:02d}.mp4"
-        _clip(img_path, clip_path, float(shot["end"]) - float(shot["start"]))
+        _clip(img_path, clip_path, float(shot["end"]) - float(shot["start"]), intro_template if idx == 0 else "none")
         clips.append(clip_path)
+    report(0.84, "合并镜头", "正在合并镜头视频")
     _concat(clips, merged_path)
-    _final(merged_path, voice_path, ass_path, final_path, total)
+    report(0.9, "导出成片", "正在压制字幕、配音和 BGM" if bgm_path else "正在压制字幕和音频")
+    _final(
+        merged_path,
+        voice_path,
+        ass_path,
+        final_path,
+        total,
+        intro_template,
+        bgm_path,
+        reveal_sfx_path,
+        [float(shot["start"]) for shot in shots],
+    )
     if cleanup_intermediate:
+        report(0.98, "清理文件", "正在清理临时渲染文件")
         _cleanup_intermediate(project_dir, audio_dir, clips_dir, merged_path)
     return {
         "project_id": project_id,
@@ -395,4 +514,8 @@ def render_story(
         "voice": f"/workspace/{project_id}/voice.mp3",
         "video": f"/workspace/{project_id}/final.mp4",
         "cleanup_intermediate": cleanup_intermediate,
+        "intro_template": intro_template,
+        "tts_provider": tts.provider,
+        "bgm": str(bgm_path.resolve()) if bgm_path else "",
+        "sfx": str(reveal_sfx_path.resolve()) if reveal_sfx_path else "",
     }

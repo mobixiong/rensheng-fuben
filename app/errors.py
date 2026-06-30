@@ -1,0 +1,2 @@
+class RenderError(RuntimeError):
+    pass

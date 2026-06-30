@@ -13,17 +13,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .audio_assets import list_bgm_options
+from .errors import RenderError
 from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images, test_image_connection
 from .llm_adapter import LLMConfig, LLMError, generate_story, generate_story_from_copy, generate_text, test_text_connection
-from .pipeline import ROOT, WORKSPACE, RenderError, render_story
+from .paths import ACTIVE_PROJECT, EXAMPLES, LEGACY_PROJECT_STATE, PROJECTS_DIR, ROOT, STATIC, WORKSPACE
+from .pipeline import render_story
+from .tts_adapter import TtsConfig
 
 
-STATIC = ROOT / "static"
-EXAMPLES = ROOT / "examples"
 COPY_PROMPT = ROOT / "prompt.txt"
-PROJECTS_DIR = WORKSPACE / "projects"
-ACTIVE_PROJECT = WORKSPACE / "active_project.json"
-LEGACY_PROJECT_STATE = WORKSPACE / "current_project.json"
 RENDER_JOBS: dict[str, dict[str, Any]] = {}
 RENDER_JOBS_LOCK = threading.Lock()
 
@@ -83,8 +82,22 @@ class RenderRequest(BaseModel):
     story: dict[str, Any]
     voice: str = "zh-CN-YunxiNeural"
     rate: str = "+12%"
+    tts_provider: str = ""
+    tts_base_url: str = ""
+    tts_api_key: str = ""
+    tts_group_id: str = ""
+    tts_model: str = "speech-2.8-hd"
+    tts_voice_id: str = "male-qn-qingse"
+    tts_speed: float = 1.0
+    tts_volume: float = 1.0
+    tts_pitch: int = 0
+    tts_emotion: str = ""
+    tts_language_boost: str = "Chinese"
     project_id: str | None = None
     cleanup_intermediate: bool = True
+    intro_template: str = "none"
+    tts_preset: str = "custom"
+    bgm_id: str = "none"
 
 
 class ProjectActivateRequest(BaseModel):
@@ -261,20 +274,27 @@ def _set_render_job(job_id: str, **updates: Any) -> None:
 
 
 def _render_job_worker(job_id: str, payload: dict[str, Any]) -> None:
-    _set_render_job(job_id, status="running", progress=0.1)
+    _set_render_job(job_id, status="running", progress=0.02, stage="准备渲染", detail="渲染任务已启动")
     try:
+        def on_progress(event: dict[str, Any]) -> None:
+            _set_render_job(job_id, status="running", **event)
+
         data = render_story(
-            payload["story"],
-            payload.get("voice") or "zh-CN-YunxiNeural",
-            payload.get("rate") or "+12%",
-            payload.get("project_id"),
-            payload.get("cleanup_intermediate", True),
+            story=payload["story"],
+            voice=payload.get("voice") or "zh-CN-YunxiNeural",
+            rate=payload.get("rate") or "+12%",
+            tts_config=TtsConfig.from_payload(payload),
+            project_id=payload.get("project_id"),
+            cleanup_intermediate=payload.get("cleanup_intermediate", True),
+            progress_callback=on_progress,
+            intro_template=payload.get("intro_template") or "none",
+            bgm_id=payload.get("bgm_id") or "none",
         )
-        _set_render_job(job_id, status="complete", progress=1, result=data)
+        _set_render_job(job_id, status="complete", progress=1, stage="渲染完成", detail="成片已导出", result=data)
     except RenderError as exc:
-        _set_render_job(job_id, status="error", progress=1, error=str(exc))
+        _set_render_job(job_id, status="error", stage="渲染失败", detail=str(exc), error=str(exc))
     except Exception as exc:
-        _set_render_job(job_id, status="error", progress=1, error=str(exc))
+        _set_render_job(job_id, status="error", stage="渲染失败", detail=str(exc), error=str(exc))
 
 
 app = FastAPI(title="人生副本工作台", version="0.1.0")
@@ -382,6 +402,11 @@ def image_prompt() -> dict[str, str]:
     return {"prompt": load_image_prompt()}
 
 
+@app.get("/api/bgm")
+def bgm_list() -> dict[str, Any]:
+    return {"items": list_bgm_options()}
+
+
 @app.post("/api/text/generate-copy")
 def text_generate_copy(req: GenerateRequest) -> dict[str, str]:
     try:
@@ -451,7 +476,16 @@ def image_regenerate_shot(req: ImageRegenerateRequest) -> dict[str, Any]:
 @app.post("/api/render")
 def render(req: RenderRequest) -> dict[str, Any]:
     try:
-        return render_story(req.story, req.voice, req.rate, req.project_id, req.cleanup_intermediate)
+        return render_story(
+            story=req.story,
+            voice=req.voice,
+            rate=req.rate,
+            tts_config=TtsConfig.from_payload(req.model_dump()),
+            project_id=req.project_id,
+            cleanup_intermediate=req.cleanup_intermediate,
+            intro_template=req.intro_template,
+            bgm_id=req.bgm_id,
+        )
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -466,12 +500,14 @@ def render_job_create(req: RenderRequest) -> dict[str, Any]:
             "job_id": job_id,
             "status": "queued",
             "progress": 0,
+            "stage": "排队中",
+            "detail": "等待渲染任务启动",
             "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
     thread = threading.Thread(target=_render_job_worker, args=(job_id, req.model_dump()), daemon=True)
     thread.start()
-    return {"job_id": job_id, "status": "queued", "progress": 0}
+    return {"job_id": job_id, "status": "queued", "progress": 0, "stage": "排队中", "detail": "等待渲染任务启动"}
 
 
 @app.get("/api/render/jobs/{job_id}")
