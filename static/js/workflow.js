@@ -9,6 +9,18 @@ const INTRO_TEMPLATE_LABELS = {
   impact: "短视频冲击感",
 };
 
+const INTRO_TEMPLATE_PREVIEW_ITEMS = [
+  "life_copy_fast_cut",
+  "life_copy_reveal",
+  "clean",
+  "soft",
+  "impact",
+  "none",
+].map((id) => ({
+  id,
+  video: `/static/assets/intro-previews/${id}.mp4`,
+}));
+
 function createImageProjectId() {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
   const rand = Math.random().toString(16).slice(2, 10);
@@ -156,16 +168,6 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
     els.bgmSelect.value = Array.from(els.bgmSelect.options).some((option) => option.value === selected) ? selected : "none";
   }
 
-  function introTemplateValues() {
-    const values = Array.from(els.introTemplate?.options || [])
-      .map((option) => option.value)
-      .filter(Boolean);
-    const selected = els.introTemplate?.value;
-    return selected && values.includes(selected)
-      ? [selected, ...values.filter((value) => value !== selected)]
-      : values;
-  }
-
   function renderIntroPreviewGrid(data) {
     if (!els.introPreviewGrid) return;
     const items = Array.isArray(data?.items) ? data.items : [];
@@ -212,40 +214,8 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
   async function previewIntroTemplates() {
     settings.persist();
     openIntroPreviewModal();
-    ui.setBusy(true);
-    ui.setStatus("生成开头预览", "busy");
-    if (els.introPreviewGrid) {
-      els.introPreviewGrid.replaceChildren();
-      const pending = document.createElement("div");
-      pending.className = "intro-preview-empty";
-      pending.textContent = "正在生成预览...";
-      els.introPreviewGrid.appendChild(pending);
-    }
-    try {
-      await projectStore.ensureSaved();
-      const payload = {
-        story: storyView.read(),
-        project_id: projectStore.mediaProjectId(),
-        templates: introTemplateValues(),
-        duration: 3,
-      };
-      const data = await api.postJson("/api/render/intro-previews", payload);
-      renderIntroPreviewGrid(data);
-      els.result.textContent = JSON.stringify(data, null, 2);
-      ui.setStatus("预览完成");
-    } catch (err) {
-      ui.setStatus("出错", "error");
-      if (els.introPreviewGrid) {
-        els.introPreviewGrid.replaceChildren();
-        const failed = document.createElement("div");
-        failed.className = "intro-preview-empty error";
-        failed.textContent = String(err.message || err);
-        els.introPreviewGrid.appendChild(failed);
-      }
-      els.result.textContent = String(err.message || err);
-    } finally {
-      ui.setBusy(false);
-    }
+    renderIntroPreviewGrid({ items: INTRO_TEMPLATE_PREVIEW_ITEMS });
+    ui.setStatus("开头模板预览已打开");
   }
 
   async function testTextConnection() {

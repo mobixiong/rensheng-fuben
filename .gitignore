@@ -19,6 +19,9 @@ workspace/
 *.wav
 *.ass
 *.srt
+!static/assets/
+!static/assets/intro-previews/
+!static/assets/intro-previews/*.mp4
 
 life-copy-design/
 
