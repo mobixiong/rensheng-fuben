@@ -97,6 +97,14 @@ function toggleSelectedShot(index) {
   storyView.updateSelection();
 }
 
+function applyTtsPreset() {
+  if (els.ttsProvider?.value === "minimax") return;
+  const option = els.ttsPreset?.selectedOptions?.[0];
+  if (!option?.dataset?.voice || !option?.dataset?.rate) return;
+  els.voice.value = option.dataset.voice;
+  els.rate.value = option.dataset.rate;
+}
+
 function setActiveTab(tab) {
   state.activeTab = tab;
   ui.setTab(tab);
@@ -215,11 +223,49 @@ function bindEvents() {
     projectStore.scheduleSave();
   });
 
-  for (const id of ["textProvider", "baseUrl", "model", "apiKey", "imageProvider", "imageBaseUrl", "imageModel", "imageApiKey", "imageSize", "voice", "rate"]) {
+  for (const id of [
+    "textProvider",
+    "baseUrl",
+    "model",
+    "apiKey",
+    "imageProvider",
+    "imageBaseUrl",
+    "imageModel",
+    "imageApiKey",
+    "imageSize",
+    "ttsBaseUrl",
+    "ttsGroupId",
+    "ttsModel",
+    "ttsVoiceId",
+    "ttsSpeed",
+    "ttsEmotion",
+    "ttsLanguageBoost",
+    "voice",
+    "rate",
+  ]) {
     $(id).addEventListener("change", settings.persist);
   }
+  for (const id of ["introTemplate", "bgmSelect"]) {
+    $(id)?.addEventListener("change", () => {
+      settings.persist();
+      projectStore.scheduleSave();
+    });
+  }
+  $("ttsPreset")?.addEventListener("change", () => {
+    applyTtsPreset();
+    settings.persist();
+    projectStore.scheduleSave();
+  });
   for (const id of ["apiKey", "imageApiKey"]) {
     $(id).addEventListener("input", settings.persist);
+  }
+  $("ttsProvider")?.addEventListener("change", () => {
+    settings.updateTtsProviderVisibility();
+    settings.persist();
+    projectStore.scheduleSave();
+  });
+  for (const id of ["ttsApiKey", "ttsBaseUrl", "ttsGroupId", "ttsVoiceId", "ttsSpeed"]) {
+    $(id)?.addEventListener("input", settings.persist);
   }
   $("textProvider").addEventListener("change", () => {
     settings.applyTextProviderDefaults();
@@ -238,7 +284,10 @@ function bindEvents() {
 async function boot() {
   bindEvents();
   restoreLayoutPrefs();
+  await workflow.loadBgmOptions().catch(() => null);
   settings.load();
+  applyTtsPreset();
+  settings.updateTtsProviderVisibility();
   if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
   await settings.loadPromptDefaults(api.fetchJson, storyView.updatePromptMeta).catch(() => storyView.updatePromptMeta());
   const restored = await projectStore.loadState();

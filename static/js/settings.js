@@ -1,6 +1,9 @@
 import {
   GEMINI_WEB2API_DEFAULT_BASE_URL,
   GEMINI_WEB2API_DEFAULT_MODEL,
+  MINIMAX_TTS_DEFAULT_BASE_URL,
+  MINIMAX_TTS_DEFAULT_MODEL,
+  MINIMAX_TTS_DEFAULT_VOICE_ID,
   SETTINGS_KEY,
 } from "./constants.js";
 
@@ -28,6 +31,7 @@ export function createSettings({ els }) {
     const cleaned = { ...s };
     delete cleaned.apiKey;
     delete cleaned.imageApiKey;
+    delete cleaned.ttsApiKey;
     return cleaned;
   }
 
@@ -44,6 +48,27 @@ export function createSettings({ els }) {
     }
   }
 
+  function applyTtsProviderDefaults() {
+    if (!els.ttsProvider || els.ttsProvider.value !== "minimax") return;
+    if (els.ttsBaseUrl && !els.ttsBaseUrl.value.trim()) els.ttsBaseUrl.value = MINIMAX_TTS_DEFAULT_BASE_URL;
+    if (els.ttsModel && !els.ttsModel.value.trim()) els.ttsModel.value = MINIMAX_TTS_DEFAULT_MODEL;
+    if (els.ttsVoiceId && !els.ttsVoiceId.value.trim()) els.ttsVoiceId.value = MINIMAX_TTS_DEFAULT_VOICE_ID;
+    if (els.ttsSpeed && !els.ttsSpeed.value.trim()) els.ttsSpeed.value = "1.0";
+    if (els.ttsLanguageBoost && !els.ttsLanguageBoost.value.trim()) els.ttsLanguageBoost.value = "Chinese";
+  }
+
+  function updateTtsProviderVisibility() {
+    const isMiniMax = els.ttsProvider?.value === "minimax";
+    document.querySelectorAll(".tts-minimax-field").forEach((node) => {
+      node.hidden = !isMiniMax;
+    });
+    const voiceField = els.voice?.closest(".field");
+    const rateField = els.rate?.closest(".field");
+    if (voiceField) voiceField.hidden = isMiniMax;
+    if (rateField) rateField.hidden = isMiniMax;
+    applyTtsProviderDefaults();
+  }
+
   function persist() {
     writeJson(localStorage, SETTINGS_KEY, {
       topic: els.topic.value,
@@ -54,6 +79,17 @@ export function createSettings({ els }) {
       imageBaseUrl: els.imageBaseUrl.value,
       imageModel: els.imageModel.value,
       imageSize: els.imageSize.value,
+      introTemplate: els.introTemplate?.value || "none",
+      ttsPreset: els.ttsPreset?.value || "custom",
+      bgmSelect: els.bgmSelect?.value || "none",
+      ttsProvider: els.ttsProvider?.value || "edge",
+      ttsBaseUrl: els.ttsBaseUrl?.value || "",
+      ttsGroupId: els.ttsGroupId?.value || "",
+      ttsModel: els.ttsModel?.value || MINIMAX_TTS_DEFAULT_MODEL,
+      ttsVoiceId: els.ttsVoiceId?.value || MINIMAX_TTS_DEFAULT_VOICE_ID,
+      ttsSpeed: els.ttsSpeed?.value || "1.0",
+      ttsEmotion: els.ttsEmotion?.value || "",
+      ttsLanguageBoost: els.ttsLanguageBoost?.value || "Chinese",
       voice: els.voice.value,
       rate: els.rate.value,
       copyPrompt: els.copyPrompt.value,
@@ -62,6 +98,7 @@ export function createSettings({ els }) {
     writeJson(sessionStorage, SECRET_SETTINGS_KEY, {
       apiKey: els.apiKey.value,
       imageApiKey: els.imageApiKey.value,
+      ttsApiKey: els.ttsApiKey?.value || "",
     });
   }
 
@@ -69,10 +106,11 @@ export function createSettings({ els }) {
     try {
       const s = readJson(localStorage, SETTINGS_KEY);
       const secrets = readJson(sessionStorage, SECRET_SETTINGS_KEY);
-      if (s.apiKey || s.imageApiKey) {
+      if (s.apiKey || s.imageApiKey || s.ttsApiKey) {
         writeJson(sessionStorage, SECRET_SETTINGS_KEY, {
           apiKey: secrets.apiKey || s.apiKey || "",
           imageApiKey: secrets.imageApiKey || s.imageApiKey || "",
+          ttsApiKey: secrets.ttsApiKey || s.ttsApiKey || "",
         });
         writeJson(localStorage, SETTINGS_KEY, cleanPersistedSettings(s));
       }
@@ -86,11 +124,30 @@ export function createSettings({ els }) {
       els.imageModel.value = s.imageModel || "";
       els.imageApiKey.value = secrets.imageApiKey || s.imageApiKey || "";
       els.imageSize.value = ["9:16", "1:1", "16:9"].includes(s.imageSize) ? s.imageSize : "9:16";
+      if (els.introTemplate) {
+        els.introTemplate.value = ["none", "clean", "soft", "impact", "life_copy_reveal"].includes(s.introTemplate)
+          ? s.introTemplate
+          : "life_copy_reveal";
+      }
+      if (els.ttsPreset) els.ttsPreset.value = s.ttsPreset || "male_fast";
+      if (els.bgmSelect && s.bgmSelect && Array.from(els.bgmSelect.options).some((option) => option.value === s.bgmSelect)) {
+        els.bgmSelect.value = s.bgmSelect;
+      }
+      if (els.ttsProvider) els.ttsProvider.value = ["edge", "minimax"].includes(s.ttsProvider) ? s.ttsProvider : "edge";
+      if (els.ttsBaseUrl) els.ttsBaseUrl.value = s.ttsBaseUrl || MINIMAX_TTS_DEFAULT_BASE_URL;
+      if (els.ttsApiKey) els.ttsApiKey.value = secrets.ttsApiKey || s.ttsApiKey || "";
+      if (els.ttsGroupId) els.ttsGroupId.value = s.ttsGroupId || "";
+      if (els.ttsModel) els.ttsModel.value = s.ttsModel || MINIMAX_TTS_DEFAULT_MODEL;
+      if (els.ttsVoiceId) els.ttsVoiceId.value = s.ttsVoiceId || MINIMAX_TTS_DEFAULT_VOICE_ID;
+      if (els.ttsSpeed) els.ttsSpeed.value = s.ttsSpeed || "1.0";
+      if (els.ttsEmotion) els.ttsEmotion.value = s.ttsEmotion || "";
+      if (els.ttsLanguageBoost) els.ttsLanguageBoost.value = s.ttsLanguageBoost || "Chinese";
       els.voice.value = s.voice || "zh-CN-YunxiNeural";
       els.rate.value = s.rate || "+12%";
       if (s.copyPrompt) els.copyPrompt.value = s.copyPrompt;
       if (s.imagePrompt) els.imagePrompt.value = s.imagePrompt;
       applyTextProviderDefaults();
+      updateTtsProviderVisibility();
     } catch {}
   }
 
@@ -201,5 +258,7 @@ export function createSettings({ els }) {
     copyToStoryPayload,
     imageConnectionPayload,
     imagePayload,
+    applyTtsProviderDefaults,
+    updateTtsProviderVisibility,
   };
 }

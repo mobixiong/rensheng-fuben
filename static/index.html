@@ -227,6 +227,45 @@
               <button id="render" class="primary-pill" type="button">渲染 MP4</button>
             </div>
 
+            <section class="video-control-panel">
+              <label class="field">
+                <span>开头模板</span>
+                <select id="introTemplate">
+                  <option value="none">无开头增强</option>
+                  <option value="life_copy_reveal" selected>人生副本揭幕模板</option>
+                  <option value="clean">干净淡入 + 暗角</option>
+                  <option value="soft">柔和淡入</option>
+                  <option value="impact">短视频冲击感</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Edge TTS 配音模板</span>
+                <select id="ttsPreset">
+                  <option value="male_fast" data-voice="zh-CN-YunxiNeural" data-rate="+12%" selected>男声快节奏</option>
+                  <option value="female_clear" data-voice="zh-CN-XiaoxiaoNeural" data-rate="+8%">女声清晰</option>
+                  <option value="male_steady" data-voice="zh-CN-YunjianNeural" data-rate="+0%">男声稳重</option>
+                  <option value="female_soft" data-voice="zh-CN-XiaoyiNeural" data-rate="+0%">女声柔和</option>
+                  <option value="custom">使用设置里的配音</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>背景 BGM</span>
+                <select id="bgmSelect">
+                  <option value="none">无 BGM</option>
+                </select>
+              </label>
+            </section>
+
+            <section id="renderProgress" class="render-progress" hidden>
+              <div class="render-progress-head">
+                <strong id="renderProgressText">等待渲染</strong>
+                <span id="renderProgressPercent">0%</span>
+              </div>
+              <div class="render-progress-track" aria-hidden="true">
+                <div id="renderProgressBar" class="render-progress-bar" style="width: 0%"></div>
+              </div>
+            </section>
+
             <section class="video-output-panel">
               <section class="preview-panel">
                 <video id="preview" controls playsinline></video>
@@ -323,6 +362,71 @@
                 <h2>配音参数</h2>
               </div>
               <div class="settings-form">
+                <label class="field">
+                  <span>配音服务</span>
+                  <select id="ttsProvider">
+                    <option value="edge">Edge TTS</option>
+                    <option value="minimax">MiniMax T2A HTTP</option>
+                  </select>
+                </label>
+                <label class="field tts-minimax-field">
+                  <span>MiniMax 接口地址</span>
+                  <input id="ttsBaseUrl" placeholder="https://api.minimaxi.com/v1/t2a_v2" />
+                </label>
+                <label class="field tts-minimax-field">
+                  <span>MiniMax API Key</span>
+                  <input id="ttsApiKey" type="password" placeholder="Bearer API_key" />
+                </label>
+                <label class="field tts-minimax-field">
+                  <span>Group ID（可选）</span>
+                  <input id="ttsGroupId" placeholder="新接口通常留空" />
+                </label>
+                <label class="field tts-minimax-field">
+                  <span>MiniMax 模型</span>
+                  <select id="ttsModel">
+                    <option value="speech-2.8-hd">speech-2.8-hd</option>
+                    <option value="speech-2.8-turbo">speech-2.8-turbo</option>
+                    <option value="speech-2.6-hd">speech-2.6-hd</option>
+                    <option value="speech-2.6-turbo">speech-2.6-turbo</option>
+                    <option value="speech-02-hd">speech-02-hd</option>
+                    <option value="speech-02-turbo">speech-02-turbo</option>
+                    <option value="speech-01-hd">speech-01-hd</option>
+                    <option value="speech-01-turbo">speech-01-turbo</option>
+                  </select>
+                </label>
+                <label class="field tts-minimax-field">
+                  <span>MiniMax 音色 ID</span>
+                  <input id="ttsVoiceId" placeholder="male-qn-qingse" />
+                </label>
+                <label class="field tts-minimax-field">
+                  <span>MiniMax 语速</span>
+                  <input id="ttsSpeed" type="number" min="0.5" max="2" step="0.1" placeholder="1.0" />
+                </label>
+                <label class="field tts-minimax-field">
+                  <span>MiniMax 情绪</span>
+                  <select id="ttsEmotion">
+                    <option value="">自动</option>
+                    <option value="happy">happy</option>
+                    <option value="sad">sad</option>
+                    <option value="angry">angry</option>
+                    <option value="fearful">fearful</option>
+                    <option value="disgusted">disgusted</option>
+                    <option value="surprised">surprised</option>
+                    <option value="calm">calm</option>
+                    <option value="fluent">fluent</option>
+                    <option value="whisper">whisper</option>
+                  </select>
+                </label>
+                <label class="field tts-minimax-field">
+                  <span>语言增强</span>
+                  <select id="ttsLanguageBoost">
+                    <option value="Chinese">Chinese</option>
+                    <option value="Chinese,Yue">Chinese,Yue</option>
+                    <option value="English">English</option>
+                    <option value="auto">auto</option>
+                    <option value="">不设置</option>
+                  </select>
+                </label>
                 <label class="field">
                   <span>语音角色</span>
                   <select id="voice">

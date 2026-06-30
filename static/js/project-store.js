@@ -6,6 +6,33 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     return Array.from(state.selectedShots || []).sort((a, b) => a - b);
   }
 
+  function resultVideoUrl(resultText) {
+    try {
+      const data = JSON.parse(resultText || "{}");
+      return typeof data.video === "string" ? data.video : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function currentRenderedVideoUrl() {
+    return els.preview?.getAttribute("src") || resultVideoUrl(els.result.textContent);
+  }
+
+  function applyRenderedVideo(url) {
+    const videoUrl = String(url || "").trim();
+    if (!els.preview || !els.openVideo) return;
+    if (!videoUrl) {
+      els.preview.removeAttribute("src");
+      els.openVideo.hidden = true;
+      els.openVideo.removeAttribute("href");
+      return;
+    }
+    els.preview.src = videoUrl;
+    els.openVideo.href = videoUrl;
+    els.openVideo.hidden = false;
+  }
+
   function projectState() {
     const selectedShots = selectedShotIndexes();
     return {
@@ -19,8 +46,12 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       story_json: els.editor.value,
       story: storyView.readOrNull(),
       result_text: els.result.textContent,
+      rendered_video: currentRenderedVideoUrl(),
       copy_prompt: els.copyPrompt.value,
       image_prompt: els.imagePrompt.value,
+      intro_template: els.introTemplate?.value || "none",
+      tts_preset: els.ttsPreset?.value || "custom",
+      bgm_id: els.bgmSelect?.value || "none",
     };
   }
 
@@ -88,7 +119,14 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (typeof projectStateData.copy_text === "string") els.copyOutput.value = projectStateData.copy_text;
     if (typeof projectStateData.copy_prompt === "string") els.copyPrompt.value = projectStateData.copy_prompt;
     if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
+    if (els.introTemplate && typeof projectStateData.intro_template === "string") els.introTemplate.value = projectStateData.intro_template;
+    if (els.ttsPreset && typeof projectStateData.tts_preset === "string") els.ttsPreset.value = projectStateData.tts_preset;
+    if (els.bgmSelect && typeof projectStateData.bgm_id === "string") {
+      const exists = Array.from(els.bgmSelect.options).some((option) => option.value === projectStateData.bgm_id);
+      if (exists) els.bgmSelect.value = projectStateData.bgm_id;
+    }
     if (typeof projectStateData.result_text === "string") els.result.textContent = projectStateData.result_text;
+    applyRenderedVideo(projectStateData.rendered_video || resultVideoUrl(projectStateData.result_text));
     const selectedShots = Array.isArray(projectStateData.selected_shots)
       ? projectStateData.selected_shots
       : Number.isInteger(projectStateData.selected_shot)
@@ -174,6 +212,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (els.topicMirror) els.topicMirror.textContent = els.topic.value;
     els.copyOutput.value = "";
     els.result.textContent = "{}";
+    applyRenderedVideo("");
     storyView.write({ title: "", style_preset: "", shots: [] }, { scheduleSave: false });
     storyView.updatePromptMeta();
     ui.setProjectMeta("未保存项目", "自动保存开启");
