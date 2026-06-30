@@ -267,6 +267,23 @@ summary:focus-visible {
   display: flex;
 }
 
+#tab-image.active {
+  height: calc(100vh - var(--topbar-height) - 64px);
+  max-height: calc(100vh - var(--topbar-height) - 64px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+#tab-image .page-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin-bottom: 0;
+  padding-bottom: 14px;
+  background: var(--bg-primary);
+}
+
 .page-head {
   min-width: 0;
   display: flex;
@@ -759,10 +776,15 @@ textarea {
 
 .image-prompt-panel .prompt-textarea {
   min-height: 84px;
+  max-height: 112px;
+  resize: none;
 }
 
 .gallery-panel {
   overflow: hidden;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr);
 }
 
 .image-toolbar {
@@ -772,10 +794,16 @@ textarea {
 }
 
 .shot-grid {
+  min-height: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 260px));
+  justify-content: start;
+  align-content: start;
+  align-items: start;
+  grid-auto-rows: max-content;
   gap: 16px;
   padding: 16px;
+  overflow: auto;
 }
 
 .shot-card {
@@ -794,7 +822,7 @@ textarea {
 .shot-thumb {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--shot-ratio, 9 / 16);
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -811,7 +839,8 @@ textarea {
 .shot-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  background: var(--bg-tertiary);
 }
 
 .shot-placeholder {
@@ -1014,10 +1043,13 @@ pre {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .shot-grid,
   .video-output-panel,
   .project-create-panel,
   .copy-editor-grid {
     grid-template-columns: 1fr;
+  }
+
+  .shot-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   }
 }

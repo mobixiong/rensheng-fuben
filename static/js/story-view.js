@@ -51,6 +51,40 @@ export function createStoryView({ els, getSelectedShot, setSelectedShot, getActi
     return "";
   }
 
+  function normalizeImageRatio(value) {
+    const ratio = String(value || "").trim();
+    if (ratio === "9:16" || ratio === "9 / 16") return "9 / 16";
+    if (ratio === "1:1" || ratio === "1 / 1") return "1 / 1";
+    if (ratio === "16:9" || ratio === "16 / 9") return "16 / 9";
+    return "";
+  }
+
+  function ratioFromImageSize(width, height) {
+    const imageRatio = width / height;
+    if (!Number.isFinite(imageRatio) || imageRatio < 0.4 || imageRatio > 2.25) return "";
+    return `${width} / ${height}`;
+  }
+
+  function shotImageRatio(shot, story) {
+    return normalizeImageRatio(shot.image_size)
+      || normalizeImageRatio(shot.size)
+      || normalizeImageRatio(story.image_size)
+      || normalizeImageRatio(els.imageSize?.value)
+      || "9 / 16";
+  }
+
+  function hydrateLoadedImageRatios() {
+    for (const img of els.shotGrid.querySelectorAll(".shot-thumb img")) {
+      const applyRatio = () => {
+        if (!img.naturalWidth || !img.naturalHeight) return;
+        const ratio = ratioFromImageSize(img.naturalWidth, img.naturalHeight);
+        if (ratio) img.closest(".shot-card")?.style.setProperty("--shot-ratio", ratio);
+      };
+      img.addEventListener("load", applyRatio, { once: true });
+      if (img.complete) applyRatio();
+    }
+  }
+
   function renderShotGrid() {
     if (!els.shotGrid) return;
     let story;
@@ -66,6 +100,7 @@ export function createStoryView({ els, getSelectedShot, setSelectedShot, getActi
     els.selectedShotLabel.textContent = shots[selectedShot] ? `选中镜头 ${selectedShot + 1}` : "未选择镜头";
     els.shotGrid.innerHTML = shots.map((shot, index) => {
       const src = shotImageSrc(shot);
+      const ratio = shotImageRatio(shot, story);
       const status = shot._image_status || "";
       const placeholderText = status === "generating"
         ? "生成中"
@@ -98,7 +133,7 @@ export function createStoryView({ els, getSelectedShot, setSelectedShot, getActi
       const punch = shot.punch || shot.keyword || `镜头 ${index + 1}`;
       const voiceover = shot.voiceover || "";
       return `
-        <article class="shot-card${selected}" data-shot="${index}">
+        <article class="shot-card${selected}" data-shot="${index}" style="--shot-ratio: ${ratio}">
           <button class="shot-thumb" type="button" data-select-shot="${index}" aria-label="选择镜头 ${index + 1}">
             <span class="state-badge ${statusClass}">${statusLabel}</span>
             ${thumb}
@@ -117,6 +152,7 @@ export function createStoryView({ els, getSelectedShot, setSelectedShot, getActi
         </article>
       `;
     }).join("");
+    hydrateLoadedImageRatios();
   }
 
   function onEditorInput() {
