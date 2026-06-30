@@ -75,6 +75,16 @@ function clampProgress(value) {
 }
 
 export function createWorkflow({ els, ui, api, settings, storyView, projectStore, state, setActiveTab }) {
+  function openIntroPreviewModal() {
+    if (!els.introPreviewModal) return;
+    els.introPreviewModal.hidden = false;
+  }
+
+  function closeIntroPreviewModal() {
+    if (!els.introPreviewModal) return;
+    els.introPreviewModal.hidden = true;
+  }
+
   function updateRenderProgress(job, options = {}) {
     if (!els.renderProgress) return;
     const currentProgress = Number.parseInt(els.renderProgressPercent?.textContent || "0", 10) / 100;
@@ -201,6 +211,7 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
 
   async function previewIntroTemplates() {
     settings.persist();
+    openIntroPreviewModal();
     ui.setBusy(true);
     ui.setStatus("生成开头预览", "busy");
     if (els.introPreviewGrid) {
@@ -669,6 +680,7 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
     redrawSelectedShots,
     loadBgmOptions,
     previewIntroTemplates,
+    closeIntroPreviewModal,
     renderVideo,
   };
 }

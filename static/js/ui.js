@@ -11,6 +11,8 @@ export function createUi() {
     renderProgressBar: $("renderProgressBar"),
     renderProgressText: $("renderProgressText"),
     renderProgressPercent: $("renderProgressPercent"),
+    introPreviewModal: $("introPreviewModal"),
+    introPreviewBackdrop: $("introPreviewBackdrop"),
     introPreviewGrid: $("introPreviewGrid"),
     jsonMeta: $("jsonMeta"),
     shotGrid: $("shotGrid"),

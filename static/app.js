@@ -172,6 +172,8 @@ function bindEvents() {
   $("validate").addEventListener("click", () => storyView.validate(els.result, ui.setStatus));
   $("render").addEventListener("click", workflow.renderVideo);
   $("previewIntroTemplates")?.addEventListener("click", workflow.previewIntroTemplates);
+  $("closeIntroPreview")?.addEventListener("click", workflow.closeIntroPreviewModal);
+  $("introPreviewBackdrop")?.addEventListener("click", workflow.closeIntroPreviewModal);
   $("sidebarToggle")?.addEventListener("click", () => {
     setSidebarCollapsed(!document.querySelector(".app-frame")?.classList.contains("sidebar-collapsed"));
   });
@@ -283,7 +285,10 @@ function bindEvents() {
       toggleSelectedShot(event.target.dataset.selectShot);
       return;
     }
-    if (event.key === "Escape") ui.closeSettings();
+    if (event.key === "Escape") {
+      workflow.closeIntroPreviewModal();
+      ui.closeSettings();
+    }
   });
 }
 

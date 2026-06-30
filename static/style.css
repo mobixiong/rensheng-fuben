@@ -460,6 +460,12 @@ summary:focus-visible {
   font-size: 13px;
 }
 
+.secondary-pill.compact {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .secondary-pill:hover,
 .pearl-button:hover {
   border-color: var(--color-primary);
@@ -569,6 +575,14 @@ textarea {
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
+}
+
+.field-action-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .project-grid {
@@ -1087,14 +1101,40 @@ textarea {
   gap: 8px;
 }
 
-.intro-preview-panel {
+.intro-preview-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
   display: grid;
-  gap: 12px;
+  place-items: center;
+  padding: 28px;
+}
+
+.intro-preview-modal[hidden] {
+  display: none;
+}
+
+.intro-preview-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(10px);
+}
+
+.intro-preview-sheet {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  width: min(860px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: hidden;
   padding: 16px;
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-lg);
   background: #fff;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-lg);
 }
 
 .intro-preview-head {
@@ -1119,12 +1159,13 @@ textarea {
 
 .intro-preview-grid {
   display: grid;
-  grid-auto-columns: minmax(120px, 150px);
-  grid-auto-flow: column;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 12px;
-  min-height: 236px;
-  overflow-x: auto;
-  padding-bottom: 2px;
+  min-height: 240px;
+  min-width: 0;
+  align-content: start;
+  overflow: auto;
+  padding: 2px;
 }
 
 .intro-preview-card {
@@ -1377,8 +1418,14 @@ pre {
     flex-direction: column;
   }
 
+  .intro-preview-sheet {
+    width: min(640px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+  }
+
   .intro-preview-grid {
-    grid-auto-columns: minmax(112px, 136px);
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    min-height: 220px;
   }
 
   .shot-grid {

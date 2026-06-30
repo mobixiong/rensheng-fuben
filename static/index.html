@@ -228,17 +228,20 @@
             </div>
 
             <section class="video-control-panel">
-              <label class="field">
+              <div class="field">
                 <span>开头模板</span>
-                <select id="introTemplate">
-                  <option value="none">无开头增强</option>
-                  <option value="life_copy_reveal">人生副本揭幕模板</option>
-                  <option value="life_copy_fast_cut" selected>人生副本快切模板</option>
-                  <option value="clean">干净淡入 + 暗角</option>
-                  <option value="soft">柔和淡入</option>
-                  <option value="impact">短视频冲击感</option>
-                </select>
-              </label>
+                <div class="field-action-row">
+                  <select id="introTemplate">
+                    <option value="none">无开头增强</option>
+                    <option value="life_copy_reveal">人生副本揭幕模板</option>
+                    <option value="life_copy_fast_cut" selected>人生副本快切模板</option>
+                    <option value="clean">干净淡入 + 暗角</option>
+                    <option value="soft">柔和淡入</option>
+                    <option value="impact">短视频冲击感</option>
+                  </select>
+                  <button id="previewIntroTemplates" class="secondary-pill compact" type="button">点击预览</button>
+                </div>
+              </div>
               <label class="field">
                 <span>Edge TTS 配音模板</span>
                 <select id="ttsPreset">
@@ -255,19 +258,6 @@
                   <option value="none">无 BGM</option>
                 </select>
               </label>
-            </section>
-
-            <section class="intro-preview-panel">
-              <div class="intro-preview-head">
-                <div>
-                  <h2>开头模板预览</h2>
-                  <p>用当前项目图片快速生成模板预览</p>
-                </div>
-                <button id="previewIntroTemplates" class="secondary-pill" type="button">生成预览</button>
-              </div>
-              <div id="introPreviewGrid" class="intro-preview-grid">
-                <div class="intro-preview-empty">暂无预览</div>
-              </div>
             </section>
 
             <section id="renderProgress" class="render-progress" hidden>
@@ -464,6 +454,21 @@
           </section>
         </section>
       </main>
+    </div>
+    <div id="introPreviewModal" class="intro-preview-modal" hidden>
+      <div id="introPreviewBackdrop" class="intro-preview-backdrop"></div>
+      <section class="intro-preview-sheet" role="dialog" aria-modal="true" aria-labelledby="introPreviewTitle">
+        <div class="intro-preview-head">
+          <div>
+            <h2 id="introPreviewTitle">开头模板预览</h2>
+            <p>用当前项目图片快速生成模板预览</p>
+          </div>
+          <button id="closeIntroPreview" class="secondary-pill compact" type="button">关闭</button>
+        </div>
+        <div id="introPreviewGrid" class="intro-preview-grid">
+          <div class="intro-preview-empty">暂无预览</div>
+        </div>
+      </section>
     </div>
     <script type="module" src="/static/app.js"></script>
   </body>
