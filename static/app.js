@@ -66,6 +66,9 @@ function bindEvents() {
     const tabButton = event.target.closest("[data-tab]");
     if (tabButton) setActiveTab(tabButton.dataset.tab);
 
+    const openProjectButton = event.target.closest("[data-open-project]");
+    if (openProjectButton) projectStore.activate(openProjectButton.dataset.openProject);
+
     const selectButton = event.target.closest("[data-select-shot]");
     if (selectButton) {
       state.selectedShot = Number(selectButton.dataset.selectShot);
@@ -95,9 +98,9 @@ function bindEvents() {
     if (els.projectPicker.value) projectStore.activate(els.projectPicker.value);
   });
 
-  $("openSettings").addEventListener("click", ui.openSettings);
-  $("closeSettings").addEventListener("click", ui.closeSettings);
-  $("settingsBackdrop").addEventListener("click", ui.closeSettings);
+  $("openSettings")?.addEventListener("click", ui.openSettings);
+  $("closeSettings")?.addEventListener("click", ui.closeSettings);
+  $("settingsBackdrop")?.addEventListener("click", ui.closeSettings);
   $("testTextConnection").addEventListener("click", workflow.testTextConnection);
   $("testImageConnection").addEventListener("click", workflow.testImageConnection);
   $("resetCopyPrompt").addEventListener("click", () => {
@@ -123,6 +126,7 @@ function bindEvents() {
     projectStore.scheduleSave();
   });
   els.topic.addEventListener("input", () => {
+    if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
     settings.persist();
     projectStore.scheduleSave();
   });
@@ -145,6 +149,7 @@ function bindEvents() {
 async function boot() {
   bindEvents();
   settings.load();
+  if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
   await settings.loadPromptDefaults(api.fetchJson, storyView.updatePromptMeta).catch(() => storyView.updatePromptMeta());
   const restored = await projectStore.loadState();
   if (!restored) await workflow.loadExample();

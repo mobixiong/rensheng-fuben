@@ -19,6 +19,10 @@ function mergeShotImageResult(targetStory, sourceStory, index) {
   return targetStory;
 }
 
+function hasShotImage(shot) {
+  return Boolean(shot?.image_url || shot?.image_path);
+}
+
 export function createWorkflow({ els, ui, api, settings, storyView, projectStore, state, setActiveTab }) {
   async function testTextConnection() {
     settings.persist();
@@ -185,18 +189,32 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
       if (!Array.isArray(shots) || shots.length === 0) {
         throw new Error("分镜列表为空");
       }
+      const pendingIndexes = shots
+        .map((shot, index) => hasShotImage(shot) ? -1 : index)
+        .filter((index) => index >= 0);
       story = {
         ...story,
         project_id: projectStore.mediaProjectId() || story.project_id || createImageProjectId(),
         shots: shots.map((shot) => ({
           ...shot,
-          _image_status: shot.image_url || shot.image_path ? "done" : "generating",
+          _image_status: hasShotImage(shot) ? "done" : "generating",
         })),
       };
       storyView.write(story);
 
+      if (pendingIndexes.length === 0) {
+        els.result.textContent = JSON.stringify({
+          "图片生成": "无需生成",
+          "已有图片": shots.length,
+          "项目编号": story.project_id,
+        }, null, 2);
+        await projectStore.queueSave({ applyState: false, refreshProjects: false });
+        ui.setStatus("就绪");
+        return;
+      }
+
       let completed = 0;
-      const tasks = story.shots.map((_, index) =>
+      const tasks = pendingIndexes.map((index) =>
         regenerateShotWithRetry(story, index)
           .then(async (data) => {
             story = mergeShotImageResult(story, data, index);
@@ -205,11 +223,12 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
             els.result.textContent = JSON.stringify({
               "图片生成": "并行进行中",
               "已完成": completed,
+              "待生成数": pendingIndexes.length,
               "总镜头数": shots.length,
               "最近完成镜头": index + 1,
               "项目编号": story.project_id,
             }, null, 2);
-            ui.setStatus(`生图 ${completed}/${shots.length}`, "busy");
+            ui.setStatus(`生图 ${completed}/${pendingIndexes.length}`, "busy");
             await projectStore.queueSave({ applyState: false, refreshProjects: false });
             return data;
           })
@@ -227,12 +246,13 @@ export function createWorkflow({ els, ui, api, settings, storyView, projectStore
       const results = await Promise.allSettled(tasks);
       const failed = results.filter((item) => item.status === "rejected");
       if (failed.length) {
-        throw new Error(`并行生图完成 ${completed}/${shots.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
+        throw new Error(`并行生图完成 ${completed}/${pendingIndexes.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
       }
 
       els.result.textContent = JSON.stringify({
         "图片生成": "完成",
         "项目编号": story.project_id,
+        "本次生成": pendingIndexes.length,
         "镜头数": story.shots?.length || 0,
       }, null, 2);
       await projectStore.queueSave({ applyState: false, refreshProjects: false });

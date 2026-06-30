@@ -75,6 +75,22 @@ export function createStoryView({ els, getSelectedShot, setSelectedShot, getActi
             ? "生成失败"
             : "等待生成";
       const placeholderClass = status === "generating" || status === "retrying" ? " generating" : status === "error" ? " error" : "";
+      const statusLabel = src
+        ? "已完成"
+        : status === "generating"
+          ? "生成中"
+          : status === "retrying"
+            ? "重试中"
+            : status === "error"
+              ? "失败"
+              : "等待中";
+      const statusClass = src
+        ? "done"
+        : status === "generating" || status === "retrying"
+          ? "generating"
+          : status === "error"
+            ? "error"
+            : "pending";
       const thumb = src
         ? `<img src="${src}" alt="镜头 ${index + 1}" />`
         : `<div class="shot-placeholder${placeholderClass}">镜头 ${index + 1}<br />${placeholderText}</div>`;
@@ -83,7 +99,10 @@ export function createStoryView({ els, getSelectedShot, setSelectedShot, getActi
       const voiceover = shot.voiceover || "";
       return `
         <article class="shot-card${selected}" data-shot="${index}">
-          <button class="shot-thumb" type="button" data-select-shot="${index}" aria-label="选择镜头 ${index + 1}">${thumb}</button>
+          <button class="shot-thumb" type="button" data-select-shot="${index}" aria-label="选择镜头 ${index + 1}">
+            <span class="state-badge ${statusClass}">${statusLabel}</span>
+            ${thumb}
+          </button>
           <div class="shot-info">
             <div class="shot-title-row">
               <strong>${escapeHtml(punch)}</strong>

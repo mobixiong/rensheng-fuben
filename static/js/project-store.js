@@ -68,6 +68,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       projectStateData.saved_at ? `${options.fromSave ? "已保存" : "已恢复"} ${projectStateData.saved_at}` : "已恢复",
     );
     if (typeof projectStateData.topic === "string") els.topic.value = projectStateData.topic;
+    if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
     if (typeof projectStateData.copy_text === "string") els.copyOutput.value = projectStateData.copy_text;
     if (typeof projectStateData.copy_prompt === "string") els.copyPrompt.value = projectStateData.copy_prompt;
     if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
@@ -84,7 +85,8 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
 
     storyView.updatePromptMeta();
     if (!options.preserveTab) {
-      setActiveTab(["copy", "image", "video"].includes(projectStateData.active_tab) ? projectStateData.active_tab : "copy");
+      const activeTab = projectStateData.active_tab === "video" ? "image" : projectStateData.active_tab;
+      setActiveTab(["project", "copy", "image", "settings"].includes(activeTab) ? activeTab : "copy");
     }
     state.restoringProject = false;
   }
@@ -99,6 +101,24 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       return `<option value="${escapeHtml(project.project_id)}">${escapeHtml(label)}</option>`;
     }).join("");
     els.projectPicker.value = state.currentProjectId || data.active_project_id || "";
+    if (els.projectGrid) {
+      els.projectGrid.innerHTML = projects.map((project) => {
+        const isActive = project.project_id === (state.currentProjectId || data.active_project_id || "");
+        return `
+          <article class="project-tile${isActive ? " active" : ""}">
+            <div class="project-tile-head">
+              <h2>${escapeHtml(project.topic || project.project_id)}</h2>
+              <span class="state-badge ${isActive ? "editing" : "done"}">${isActive ? "进行中" : "已保存"}</span>
+            </div>
+            <p>${escapeHtml(project.project_id)}</p>
+            <div class="project-tile-foot">
+              <span>${escapeHtml(project.saved_at || "未记录时间")}</span>
+              <button class="secondary-pill" type="button" data-open-project="${escapeHtml(project.project_id)}">打开</button>
+            </div>
+          </article>
+        `;
+      }).join("") || '<div class="empty-state">暂无项目，先新建一个主题。</div>';
+    }
   }
 
   async function loadState() {
@@ -129,6 +149,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     state.currentProjectId = "";
     state.selectedShot = 0;
     els.topic.value = "新项目";
+    if (els.topicMirror) els.topicMirror.textContent = els.topic.value;
     els.copyOutput.value = "";
     els.result.textContent = "{}";
     storyView.write({ title: "", style_preset: "", shots: [] }, { scheduleSave: false });

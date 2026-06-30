@@ -8,143 +8,197 @@
   </head>
   <body>
     <div class="app-frame">
-      <header class="app-header">
-        <div class="brand-block">
-          <div class="brand-mark">人生副本</div>
-          <div class="brand-subtitle">短视频生成工作台</div>
+      <aside class="app-sidebar">
+        <div class="sidebar-brand">
+          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <path d="M8 8v5M12 7v8M16 8v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+          <strong>人生副本工作台</strong>
         </div>
-        <nav class="workflow-tabs" role="tablist" aria-label="工作流">
-          <button class="tab-button active" data-tab="copy" type="button">文案</button>
-          <button class="tab-button" data-tab="image" type="button">图片</button>
-          <button class="tab-button" data-tab="video" type="button">视频</button>
-        </nav>
-        <div class="header-actions">
-          <button id="openSettings" class="settings-button" type="button">设置</button>
-          <div class="status-pill" id="status">就绪</div>
-        </div>
-      </header>
 
-      <main class="workspace">
-        <section class="topic-bar" aria-label="项目">
-          <div class="project-card">
+        <nav class="sidebar-nav" role="tablist" aria-label="主导航">
+          <button class="tab-button" data-tab="project" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="2.5" y="2.5" width="6" height="6" rx="1.4" />
+              <rect x="11.5" y="2.5" width="6" height="6" rx="1.4" />
+              <rect x="2.5" y="11.5" width="6" height="6" rx="1.4" />
+              <rect x="11.5" y="11.5" width="6" height="6" rx="1.4" />
+            </svg>
+            <span>项目管理</span>
+          </button>
+          <button class="tab-button active" data-tab="copy" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="5" y="3" width="10" height="14" rx="2" />
+              <path d="M8 7h4M8 10h4M8 13h3" />
+            </svg>
+            <span>文案工作台</span>
+          </button>
+          <button class="tab-button" data-tab="image" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="3" y="4" width="14" height="12" rx="2" />
+              <path d="m5.5 13 3.2-3.2 2.4 2.4 1.8-1.8 1.6 2.6" />
+              <circle cx="13.5" cy="7.5" r="1" />
+            </svg>
+            <span>分镜工作台</span>
+          </button>
+          <button class="tab-button" data-tab="settings" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="10" cy="10" r="2.4" />
+              <path d="M10 2.8v2M10 15.2v2M4.9 4.9l1.4 1.4M13.7 13.7l1.4 1.4M2.8 10h2M15.2 10h2M4.9 15.1l1.4-1.4M13.7 6.3l1.4-1.4" />
+            </svg>
+            <span>设置</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-user">
+          <span class="user-avatar">人</span>
+          <span>本地工作区</span>
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="topbar">
+          <div class="project-switch">
             <span>当前项目</span>
             <strong id="projectLabel">未保存项目</strong>
             <em id="projectSaveMeta">尚未保存</em>
-            <select id="projectPicker" aria-label="切换项目">
-              <option value="">未保存项目</option>
-            </select>
           </div>
-          <label class="topic-field">
-            <span>主题</span>
-            <input id="topic" value="自助餐成瘾者回本哥的人生" />
-          </label>
-          <button id="newProject" class="secondary-pill" type="button">新建项目</button>
-          <button id="saveProject" class="secondary-pill" type="button">保存项目</button>
-        </section>
+          <select id="projectPicker" aria-label="切换项目">
+            <option value="">未保存项目</option>
+          </select>
+          <div class="topbar-spacer"></div>
+          <div class="status-pill" id="status">就绪</div>
+        </header>
 
         <section class="stage">
+          <section class="tab-view" id="tab-project">
+            <div class="page-head">
+              <div>
+                <h1>项目管理</h1>
+                <p>管理你的短视频创作项目</p>
+              </div>
+              <button id="newProject" class="primary-pill" type="button">新建项目</button>
+            </div>
+
+            <section class="project-create-panel">
+              <label class="topic-field">
+                <span>主题</span>
+                <input id="topic" value="自助餐成瘾者回本哥的人生" />
+              </label>
+              <button id="saveProject" class="secondary-pill" type="button">保存项目</button>
+            </section>
+
+            <div class="project-grid" id="projectGrid"></div>
+          </section>
+
           <section class="tab-view active" id="tab-copy">
             <div class="page-head">
               <div>
-                <span class="page-kicker">文案</span>
-                <h1>口播与分镜</h1>
+                <h1>文案工作台</h1>
+                <p>输入主题、配置提示词、生成文案并拆分为分镜脚本</p>
               </div>
-              <div class="page-actions">
-                <button id="resetCopyPrompt" class="secondary-pill" type="button">恢复提示词</button>
-                <button id="generateCopy" class="primary-pill" type="button">生成口播并拆分镜</button>
-              </div>
+              <button id="generateCopy" class="primary-pill" type="button">生成文案</button>
             </div>
 
-            <div class="copy-grid">
-              <section class="work-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>文案提示词</h2>
-                    <span id="copyPromptMeta">0 字</span>
-                  </div>
-                </div>
-                <textarea id="copyPrompt" spellcheck="false"></textarea>
-              </section>
+            <ol class="workflow-steps" aria-label="创作流程">
+              <li class="done"><span>1</span><strong>输入主题</strong></li>
+              <li class="active"><span>2</span><strong>生成文案</strong></li>
+              <li><span>3</span><strong>拆分分镜</strong></li>
+              <li><span>4</span><strong>生成视频</strong></li>
+            </ol>
 
-              <section class="work-panel">
-                <div class="panel-head">
-                  <div>
-                    <h2>口播文案</h2>
-                    <span id="copyMeta">0 字</span>
-                  </div>
+            <section class="flow-section compact">
+              <div class="flow-section-head">
+                <strong>1. 输入主题</strong>
+                <span class="state-badge done">已完成</span>
+              </div>
+              <div class="readonly-topic" id="topicMirror">自助餐成瘾者回本哥的人生</div>
+            </section>
+
+            <section class="flow-section active">
+              <div class="flow-section-head">
+                <strong>2. 生成文案</strong>
+                <span class="state-badge editing">编辑中</span>
+              </div>
+              <div class="field-title-row">
+                <span>文案提示词</span>
+                <button id="resetCopyPrompt" class="text-action" type="button">使用默认提示词</button>
+              </div>
+              <textarea id="copyPrompt" class="prompt-textarea" spellcheck="false"></textarea>
+              <div class="panel-foot">
+                <span id="copyPromptMeta">0 字</span>
+                <button id="generate" class="secondary-pill" type="button">仅用主题生成</button>
+              </div>
+              <div class="output-card">
+                <div class="output-head">
+                  <span>口播文案</span>
+                  <span id="copyMeta">0 字</span>
                 </div>
                 <textarea id="copyOutput" spellcheck="false"></textarea>
-              </section>
-            </div>
-
-            <details class="advanced-story">
-              <summary>
-                <span>分镜数据（自动生成，高级）</span>
-                <span id="jsonMeta">0 个镜头</span>
-              </summary>
-              <div class="story-editor">
-                <div class="panel-head">
-                  <div>
-                    <h2>内部 JSON</h2>
-                  </div>
-                  <div class="panel-actions">
-                    <button id="loadExample" class="utility-button" type="button">加载示例</button>
-                    <button id="buildStoryboard" class="utility-button" type="button">由口播拆分镜</button>
-                    <button id="generate" class="utility-button" type="button">仅用主题生成</button>
-                    <button id="validate" class="utility-button" type="button">校验</button>
-                  </div>
-                </div>
-                <textarea id="jsonEditor" spellcheck="false"></textarea>
               </div>
-            </details>
+            </section>
+
+            <section class="flow-section">
+              <div class="flow-section-head">
+                <strong>3. 拆分分镜</strong>
+                <div class="panel-actions">
+                  <button id="buildStoryboard" class="secondary-pill" type="button">由口播拆分镜</button>
+                  <button id="validate" class="secondary-pill" type="button">校验</button>
+                  <button id="loadExample" class="secondary-pill" type="button">加载示例</button>
+                </div>
+              </div>
+              <details class="advanced-story">
+                <summary>
+                  <span>分镜数据（自动生成，高级）</span>
+                  <span id="jsonMeta">0 个镜头</span>
+                </summary>
+                <textarea id="jsonEditor" spellcheck="false"></textarea>
+              </details>
+            </section>
           </section>
 
           <section class="tab-view" id="tab-image">
             <div class="page-head">
               <div>
-                <span class="page-kicker">图片</span>
-                <h1>分镜图生成</h1>
+                <h1>分镜工作台</h1>
+                <p id="imageProjectSubtitle">当前项目分镜图生成</p>
               </div>
               <div class="page-actions">
-                <button id="resetImagePrompt" class="secondary-pill" type="button">恢复提示词</button>
-                <button id="refreshGallery" class="secondary-pill" type="button">刷新列表</button>
-                <button id="generateImages" class="primary-pill" type="button">批量生成</button>
+                <button id="resetImagePrompt" class="secondary-pill" type="button">图片提示词</button>
+                <button id="generateImages" class="primary-pill" type="button">批量生成图片</button>
+                <button id="render" class="primary-pill ghost" type="button">合成视频</button>
               </div>
             </div>
 
-            <div class="image-layout">
-              <section class="work-panel image-prompt-wrap">
-                <div class="panel-head">
-                  <div>
-                    <h2>图片提示词</h2>
-                    <span id="imagePromptMeta">0 字</span>
-                  </div>
+            <section class="image-prompt-panel">
+              <div class="flow-section-head">
+                <strong>图片提示词</strong>
+                <div class="panel-actions">
+                  <select id="imageStylePreset" aria-label="图片风格">
+                    <option>写实风格</option>
+                    <option>短视频插画</option>
+                    <option>电影感</option>
+                  </select>
+                  <button id="refreshGallery" class="text-action" type="button">刷新列表</button>
                 </div>
-                <textarea id="imagePrompt" spellcheck="false"></textarea>
-              </section>
-
-              <section class="gallery-panel">
-                <div class="image-toolbar">
-                  <div id="selectedShotLabel">未选择镜头</div>
-                  <button id="redrawSelected" class="utility-button" type="button">重抽选中图片</button>
-                </div>
-                <div class="shot-grid" id="shotGrid"></div>
-              </section>
-            </div>
-          </section>
-
-          <section class="tab-view" id="tab-video">
-            <div class="page-head">
-              <div>
-                <span class="page-kicker">视频</span>
-                <h1>成片渲染</h1>
               </div>
-              <div class="page-actions">
-                <button id="render" class="primary-pill" type="button">渲染 MP4</button>
+              <textarea id="imagePrompt" class="prompt-textarea" spellcheck="false"></textarea>
+              <div class="panel-foot">
+                <span id="imagePromptMeta">0 字</span>
+                <div id="selectedShotLabel">未选择镜头</div>
               </div>
-            </div>
+            </section>
 
-            <div class="video-layout">
+            <section class="gallery-panel">
+              <div class="image-toolbar">
+                <strong>分镜图片</strong>
+                <button id="redrawSelected" class="secondary-pill" type="button">重抽选中图片</button>
+              </div>
+              <div class="shot-grid" id="shotGrid"></div>
+            </section>
+
+            <section class="video-output-panel">
               <section class="preview-panel">
                 <video id="preview" controls playsinline></video>
               </section>
@@ -155,118 +209,114 @@
                 </div>
                 <pre id="result">{}</pre>
               </section>
+            </section>
+          </section>
+
+          <section class="tab-view" id="tab-settings">
+            <div class="page-head">
+              <div>
+                <h1>设置</h1>
+                <p>配置接口和参数</p>
+              </div>
             </div>
+
+            <section class="settings-panel">
+              <div class="settings-title-row">
+                <h2>文本接口</h2>
+                <div class="settings-test-row">
+                  <button id="testTextConnection" class="secondary-pill" type="button">测试连接</button>
+                  <span id="textConnectionResult" class="test-result">未测试</span>
+                </div>
+              </div>
+              <div class="settings-form">
+                <label class="field">
+                  <span>接口地址</span>
+                  <input id="baseUrl" placeholder="http://127.0.0.1:8081/v1" />
+                </label>
+                <label class="field">
+                  <span>接口类型</span>
+                  <select id="textProvider">
+                    <option value="openai">OpenAI Compatible</option>
+                    <option value="gemini_web2api">Gemini Web2API</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>模型</span>
+                  <input id="model" placeholder="gemini-3.5-flash-thinking" />
+                </label>
+                <label class="field">
+                  <span>密钥</span>
+                  <input id="apiKey" type="password" placeholder="sk-..." />
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-panel">
+              <div class="settings-title-row">
+                <h2>图片接口</h2>
+                <div class="settings-test-row">
+                  <button id="testImageConnection" class="secondary-pill" type="button">测试连接</button>
+                  <span id="imageConnectionResult" class="test-result">未测试</span>
+                </div>
+              </div>
+              <div class="settings-form">
+                <label class="field">
+                  <span>接口地址</span>
+                  <input id="imageBaseUrl" placeholder="https://api.example.com" />
+                </label>
+                <label class="field">
+                  <span>接口类型</span>
+                  <select id="imageProvider">
+                    <option value="openai">OpenAI Images API</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>模型</span>
+                  <input id="imageModel" placeholder="image-model-name" />
+                </label>
+                <label class="field">
+                  <span>密钥</span>
+                  <input id="imageApiKey" type="password" placeholder="sk-..." />
+                </label>
+                <label class="field">
+                  <span>图片尺寸</span>
+                  <select id="imageSize">
+                    <option value="9:16" selected>9:16 竖屏</option>
+                    <option value="1:1">1:1 正方形</option>
+                    <option value="16:9">16:9 横屏</option>
+                  </select>
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-panel">
+              <div class="settings-title-row">
+                <h2>配音参数</h2>
+              </div>
+              <div class="settings-form">
+                <label class="field">
+                  <span>语音角色</span>
+                  <select id="voice">
+                    <option value="zh-CN-YunxiNeural">云希男声</option>
+                    <option value="zh-CN-XiaoxiaoNeural">晓晓女声</option>
+                    <option value="zh-CN-YunjianNeural">云健男声</option>
+                    <option value="zh-CN-XiaoyiNeural">晓伊女声</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>语速</span>
+                  <select id="rate">
+                    <option value="+12%">+12%</option>
+                    <option value="+0%">+0%</option>
+                    <option value="+20%">+20%</option>
+                    <option value="-5%">-5%</option>
+                  </select>
+                </label>
+              </div>
+            </section>
           </section>
         </section>
       </main>
-
-      <div class="settings-backdrop" id="settingsBackdrop" hidden></div>
-      <aside class="settings-drawer" id="settingsDrawer" aria-label="设置" aria-hidden="true">
-        <div class="settings-shell">
-          <div class="settings-head">
-            <div>
-              <h2>设置</h2>
-              <span>接口、模型、密钥和配音</span>
-            </div>
-            <button id="closeSettings" class="icon-button" type="button" aria-label="关闭设置">×</button>
-          </div>
-
-          <section class="config-section">
-            <div class="section-head">
-              <span>文案接口</span>
-            </div>
-            <div class="field-grid">
-              <label class="field">
-                <span>服务类型</span>
-                <select id="textProvider">
-                  <option value="openai">OpenAI-compatible</option>
-                  <option value="gemini_web2api">Gemini Web2API</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>模型</span>
-                <input id="model" placeholder="gemini-3.5-flash-thinking" />
-              </label>
-              <label class="field wide-field">
-                <span>接口地址</span>
-                <input id="baseUrl" placeholder="http://127.0.0.1:8081/v1" />
-              </label>
-              <label class="field wide-field">
-                <span>密钥</span>
-                <input id="apiKey" type="password" placeholder="sk-..." />
-              </label>
-            </div>
-            <div class="settings-test-row">
-              <button id="testTextConnection" class="secondary-pill" type="button">测试文案连接</button>
-              <span id="textConnectionResult" class="test-result">未测试</span>
-            </div>
-          </section>
-
-          <section class="config-section">
-            <div class="section-head">
-              <span>图片接口</span>
-            </div>
-            <div class="field-grid">
-              <label class="field">
-                <span>服务类型</span>
-                <select id="imageProvider">
-                  <option value="openai">OpenAI-compatible</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>图片尺寸</span>
-                <select id="imageSize">
-                  <option value="9:16" selected>9:16 竖屏</option>
-                  <option value="1:1">1:1 正方形</option>
-                  <option value="16:9">16:9 横屏</option>
-                </select>
-              </label>
-              <label class="field wide-field">
-                <span>模型</span>
-                <input id="imageModel" placeholder="image-model-name" />
-              </label>
-              <label class="field wide-field">
-                <span>接口地址</span>
-                <input id="imageBaseUrl" placeholder="https://api.example.com" />
-              </label>
-              <label class="field wide-field">
-                <span>密钥</span>
-                <input id="imageApiKey" type="password" placeholder="sk-..." />
-              </label>
-            </div>
-            <div class="settings-test-row">
-              <button id="testImageConnection" class="secondary-pill" type="button">测试图片连接</button>
-              <span id="imageConnectionResult" class="test-result">未测试</span>
-            </div>
-          </section>
-
-          <section class="config-section">
-            <div class="section-head">
-              <span>配音</span>
-            </div>
-            <div class="field-grid">
-              <label class="field">
-                <span>音色</span>
-                <select id="voice">
-                  <option value="zh-CN-YunxiNeural">云希男声</option>
-                  <option value="zh-CN-XiaoxiaoNeural">晓晓女声</option>
-                  <option value="zh-CN-YunjianNeural">云健男声</option>
-                  <option value="zh-CN-XiaoyiNeural">晓伊女声</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>语速</span>
-                <select id="rate">
-                  <option value="+12%">+12%</option>
-                  <option value="+0%">+0%</option>
-                  <option value="+20%">+20%</option>
-                  <option value="-5%">-5%</option>
-                </select>
-              </label>
-            </div>
-          </section>
-        </div>
-      </aside>
     </div>
     <script type="module" src="/static/app.js"></script>
   </body>

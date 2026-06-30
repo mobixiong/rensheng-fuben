@@ -23,7 +23,9 @@ export function createUi() {
     projectLabel: $("projectLabel"),
     projectSaveMeta: $("projectSaveMeta"),
     projectPicker: $("projectPicker"),
+    projectGrid: $("projectGrid"),
     topic: $("topic"),
+    topicMirror: $("topicMirror"),
     textProvider: $("textProvider"),
     baseUrl: $("baseUrl"),
     model: $("model"),
@@ -78,12 +80,17 @@ export function createUi() {
   }
 
   function openSettings() {
+    if (!els.settingsBackdrop || !els.settingsDrawer) {
+      setTab("settings");
+      return;
+    }
     els.settingsBackdrop.hidden = false;
     els.settingsDrawer.classList.add("open");
     els.settingsDrawer.setAttribute("aria-hidden", "false");
   }
 
   function closeSettings() {
+    if (!els.settingsBackdrop || !els.settingsDrawer) return;
     els.settingsDrawer.classList.remove("open");
     els.settingsDrawer.setAttribute("aria-hidden", "true");
     els.settingsBackdrop.hidden = true;
