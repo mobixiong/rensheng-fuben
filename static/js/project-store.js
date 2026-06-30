@@ -85,8 +85,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
 
     storyView.updatePromptMeta();
     if (!options.preserveTab) {
-      const activeTab = projectStateData.active_tab === "video" ? "image" : projectStateData.active_tab;
-      setActiveTab(["project", "copy", "image", "settings"].includes(activeTab) ? activeTab : "copy");
+      setActiveTab(["project", "copy", "image", "video", "settings"].includes(projectStateData.active_tab) ? projectStateData.active_tab : "copy");
     }
     state.restoringProject = false;
   }

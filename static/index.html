@@ -42,6 +42,13 @@
             </svg>
             <span>分镜工作台</span>
           </button>
+          <button class="tab-button" data-tab="video" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="3" y="4" width="14" height="12" rx="2" />
+              <path d="m8 7 5 3-5 3z" />
+            </svg>
+            <span>成片合成</span>
+          </button>
           <button class="tab-button" data-tab="settings" type="button">
             <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
               <circle cx="10" cy="10" r="2.4" />
@@ -68,6 +75,7 @@
             <option value="">未保存项目</option>
           </select>
           <div class="topbar-spacer"></div>
+          <button id="saveProject" class="secondary-pill" type="button">保存项目</button>
           <div class="status-pill" id="status">就绪</div>
         </header>
 
@@ -80,14 +88,6 @@
               </div>
               <button id="newProject" class="primary-pill" type="button">新建项目</button>
             </div>
-
-            <section class="project-create-panel">
-              <label class="topic-field">
-                <span>主题</span>
-                <input id="topic" value="自助餐成瘾者回本哥的人生" />
-              </label>
-              <button id="saveProject" class="secondary-pill" type="button">保存项目</button>
-            </section>
 
             <div class="project-grid" id="projectGrid"></div>
           </section>
@@ -111,9 +111,12 @@
             <section class="flow-section compact">
               <div class="flow-section-head">
                 <strong>1. 输入主题</strong>
-                <span class="state-badge done">已完成</span>
+                <span class="state-badge editing">编辑中</span>
               </div>
-              <div class="readonly-topic" id="topicMirror">自助餐成瘾者回本哥的人生</div>
+              <label class="topic-field">
+                <span>主题</span>
+                <input id="topic" value="自助餐成瘾者回本哥的人生" />
+              </label>
             </section>
 
             <section class="flow-section active">
@@ -125,17 +128,21 @@
                 <span>文案提示词</span>
                 <button id="resetCopyPrompt" class="text-action" type="button">使用默认提示词</button>
               </div>
-              <textarea id="copyPrompt" class="prompt-textarea" spellcheck="false"></textarea>
-              <div class="panel-foot">
-                <span id="copyPromptMeta">0 字</span>
-                <button id="generate" class="secondary-pill" type="button">仅用主题生成</button>
-              </div>
-              <div class="output-card">
-                <div class="output-head">
-                  <span>口播文案</span>
-                  <span id="copyMeta">0 字</span>
+              <div class="copy-editor-grid">
+                <div>
+                  <textarea id="copyPrompt" class="prompt-textarea" spellcheck="false"></textarea>
+                  <div class="panel-foot">
+                    <span id="copyPromptMeta">0 字</span>
+                    <button id="generate" class="secondary-pill" type="button">仅用主题生成</button>
+                  </div>
                 </div>
-                <textarea id="copyOutput" spellcheck="false"></textarea>
+                <div class="output-card">
+                  <div class="output-head">
+                    <span>口播文案</span>
+                    <span id="copyMeta">0 字</span>
+                  </div>
+                  <textarea id="copyOutput" spellcheck="false"></textarea>
+                </div>
               </div>
             </section>
 
@@ -167,7 +174,6 @@
               <div class="page-actions">
                 <button id="resetImagePrompt" class="secondary-pill" type="button">图片提示词</button>
                 <button id="generateImages" class="primary-pill" type="button">批量生成图片</button>
-                <button id="render" class="primary-pill ghost" type="button">合成视频</button>
               </div>
             </div>
 
@@ -197,6 +203,16 @@
               </div>
               <div class="shot-grid" id="shotGrid"></div>
             </section>
+          </section>
+
+          <section class="tab-view" id="tab-video">
+            <div class="page-head">
+              <div>
+                <h1>成片合成</h1>
+                <p>根据当前分镜、图片、配音配置渲染竖屏 MP4</p>
+              </div>
+              <button id="render" class="primary-pill" type="button">渲染 MP4</button>
+            </div>
 
             <section class="video-output-panel">
               <section class="preview-panel">

@@ -184,7 +184,7 @@ summary:focus-visible {
 .topbar {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(220px, 320px) minmax(260px, 420px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(220px, 320px) minmax(260px, 420px) minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 14px;
   padding: 0 32px;
@@ -425,6 +425,24 @@ textarea {
   padding: 20px;
 }
 
+.copy-editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.copy-editor-grid > div:first-child {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: minmax(260px, 1fr) auto;
+}
+
+.copy-editor-grid .prompt-textarea {
+  min-height: 260px;
+  resize: vertical;
+}
+
 .topic-field,
 .field {
   min-width: 0;
@@ -625,8 +643,10 @@ textarea {
 }
 
 .output-card {
-  margin-top: 18px;
+  min-width: 0;
   overflow: hidden;
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
   background: var(--bg-secondary);
 }
 
@@ -639,7 +659,7 @@ textarea {
 }
 
 .output-card textarea {
-  min-height: 190px;
+  min-height: 260px;
   padding: 14px 16px;
   border: 0;
   background: transparent;
@@ -996,7 +1016,8 @@ pre {
 
   .shot-grid,
   .video-output-panel,
-  .project-create-panel {
+  .project-create-panel,
+  .copy-editor-grid {
     grid-template-columns: 1fr;
   }
 }
