@@ -1,6 +1,6 @@
 # 人生副本工作台
 
-一个本地 AI 短视频工作台，用于把“人生副本”主题拆成分镜脚本，再生成图片、配音、字幕和竖屏 MP4。
+一个本地 AI 短视频工作台，用于把“人生副本”主题拆成分镜脚本，再生成图片、配音、字幕和 MP4 成片。
 
 项目不绑定具体模型服务，不内置商业生图能力，只提供可替换的接口层。
 
@@ -27,8 +27,10 @@
 - 图片批量生成和单张重抽
 - 图片失败自动重试，并在分镜卡片显示生成中、重试中、失败状态
 - TTS 配音：Edge TTS / MiniMax T2A HTTP
+- BGM 与开头音效：内置本地素材选择，支持上传自定义音频到 `workspace/`
+- 开头模板：翻页快切、展开快切、横向/纵向羽化快闪、阶梯遮罩接力，模板预览使用固定静态 MP4
 - SRT/ASS 字幕
-- FFmpeg 合成竖屏 MP4
+- FFmpeg 合成 MP4（当前默认 1080x1920 / 9:16 画布）
 
 ## 快速开始
 
@@ -59,7 +61,7 @@ python scripts/smoke_check.py --external
 
 ## 环境要求
 
-- Python 3.10+
+- Python 3.11+
 - FFmpeg / FFprobe in PATH
 - Python packages in `requirements.txt`
 
@@ -133,7 +135,14 @@ subtitle.srt
 - `settings.js`：本地设置、接口配置和请求 payload
 - `story-view.js`：分镜 JSON、字数统计、分镜卡片渲染
 - `project-store.js`：项目保存、恢复、切换和自动保存
-- `workflow.js`：口播、拆分镜、生图、重抽、渲染视频流程
+- `workflow.js`：组合各 workflow 子模块
+- `workflow-theme.js`：主题策划和主题修订
+- `workflow-copy.js`：口播生成和口播拆分镜
+- `workflow-image.js`：图片批量生成、并发、重试、重抽
+- `workflow-media.js`：BGM/音效上传和开头模板预览
+- `workflow-render.js`：异步渲染任务提交、轮询和视频预览
+- `workflow-connection.js`：文本/图片接口连通性测试
+- `workflow-utils.js`：流程工具函数
 
 ## Gemini Web2API
 
@@ -195,13 +204,15 @@ Authorization: Bearer {IMAGE_API_KEY}
 - `data[0].url`
 - `data[0].b64_json`
 
-尺寸使用比例字符串，不固定写像素：
+图片尺寸使用比例字符串，不固定写像素：
 
 ```text
 9:16  竖屏，默认，适合短视频
 1:1   正方形
 16:9  横屏
 ```
+
+注意：图片生成比例和成片画布是两个概念。当前成片合成画布仍固定为 `1080x1920`（9:16），横屏或方形图片会被适配进竖屏视频画布。后续如果需要完整横屏成片，需要在渲染配置里新增成片比例/分辨率参数。
 
 生成图片后，工作台会把每个 shot 更新为：
 
@@ -226,6 +237,15 @@ Group ID：新接口通常留空，旧网关需要时再填
 ```
 
 MiniMax 使用官方同步语音合成接口 `POST /v1/t2a_v2`，工作台请求非流式 `hex` 音频并写入本地 MP3，再进入后续视频合成流程。
+
+## 音频素材
+
+成片合成支持两类音频素材：
+
+- 背景 BGM：内置目录 `assets/bgm/`，用户上传目录 `workspace/bgm/`
+- 开头音效：默认使用 `assets/sfx/gear.mp3`，用户上传目录 `workspace/sfx/`
+
+用户上传音频支持 `mp3`、`wav`、`m4a`、`aac`、`flac`、`ogg`，单个文件上限为 `100MB`。`workspace/` 已在 `.gitignore` 中忽略，上传素材不会进入公开仓库。
 
 ## 分镜数据格式
 
@@ -259,8 +279,13 @@ GET  /api/project/current
 POST /api/project/current
 POST /api/project/activate
 GET  /api/prompt/default
+GET  /api/prompt/copy-xianxia
+GET  /api/prompt/copy-to-story
 GET  /api/prompt/image
+GET  /api/prompt/theme
 POST /api/text/generate-copy
+POST /api/text/generate-theme
+POST /api/text/revise-theme
 POST /api/text/copy-to-story
 POST /api/text/generate
 POST /api/llm/generate
@@ -268,7 +293,13 @@ POST /api/settings/test-text
 POST /api/settings/test-image
 POST /api/image/generate-story
 POST /api/image/regenerate-shot
+GET  /api/bgm
+POST /api/bgm/upload
+GET  /api/intro-sfx
+POST /api/intro-sfx/upload
 POST /api/render
+POST /api/render/jobs
+GET  /api/render/jobs/{job_id}
 ```
 
 `/api/render` 会输出到：
