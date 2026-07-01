@@ -1,30 +1,11 @@
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
-
 from .render_constants import H, W
 
 SUBTITLE_FONT_SIZE = 54
-
-
-def _font_path() -> str:
-    for p in [
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\simhei.ttf",
-        r"C:\Windows\Fonts\Dengb.ttf",
-        r"C:\Windows\Fonts\arialbd.ttf",
-    ]:
-        if Path(p).exists():
-            return p
-    return ""
-
-
-FONT_PATH = _font_path()
-
-
-def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    return ImageFont.truetype(FONT_PATH, size=size) if FONT_PATH else ImageFont.load_default()
+SUBTITLE_SPLIT_MARKS = "，。！？；,.!?;"
+SUBTITLE_MIN_CHARS = 10
 
 
 def _srt_ts(sec: float) -> str:
@@ -53,48 +34,52 @@ def _ass_escape(text: str) -> str:
     return str(text).replace("\n", " ").replace("\r", " ").replace("{", "｛").replace("}", "｝").strip()
 
 
-def _subtitle_chunks(text: str, max_width: int) -> list[str]:
+def _visible_len(text: str) -> int:
+    return len(str(text or "").strip().strip(SUBTITLE_SPLIT_MARKS))
+
+
+def _merge_short_chunks(chunks: list[str]) -> list[str]:
+    merged: list[str] = []
+    pending = ""
+    for chunk in chunks:
+        if not chunk:
+            continue
+        pending = f"{pending}{chunk}" if pending else chunk
+        if _visible_len(pending) >= SUBTITLE_MIN_CHARS:
+            merged.append(pending)
+            pending = ""
+    if pending:
+        if merged and (_visible_len(pending) < SUBTITLE_MIN_CHARS or _visible_len(merged[-1]) < SUBTITLE_MIN_CHARS):
+            merged[-1] = f"{merged[-1]}{pending}"
+        else:
+            merged.append(pending)
+    return merged or chunks
+
+
+def _subtitle_chunks(text: str) -> list[str]:
     clean = " ".join(str(text or "").split())
     if not clean:
         return [""]
 
-    font = _font(SUBTITLE_FONT_SIZE)
-    draw = ImageDraw.Draw(Image.new("RGB", (8, 8), "#000000"))
-    break_chars = "，。！？；、,.!?; "
     chunks: list[str] = []
     current = ""
-
-    def text_width(value: str) -> int:
-        box = draw.textbbox((0, 0), value, font=font, stroke_width=4)
-        return box[2] - box[0]
-
     for ch in clean:
-        candidate = current + ch
-        if current and text_width(candidate) > max_width:
-            split_at = max(current.rfind(mark) for mark in break_chars)
-            if split_at >= 8 and len(current) - split_at <= 8:
-                head = current[: split_at + 1].strip()
-                tail = current[split_at + 1 :].strip()
-                if head:
-                    chunks.append(head)
-                current = tail + ch
-            else:
-                chunks.append(current.strip())
-                current = ch.strip()
-        else:
-            current = candidate
+        current += ch
+        if ch in SUBTITLE_SPLIT_MARKS:
+            chunks.append(current.strip())
+            current = ""
     if current.strip():
         chunks.append(current.strip())
-    return [chunk for chunk in chunks if chunk] or [clean]
+    return _merge_short_chunks([chunk for chunk in chunks if chunk] or [clean])
 
 
-def _subtitle_events(shots: list[dict[str, Any]], max_width: int) -> list[dict[str, Any]]:
+def _subtitle_events(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     for shot in shots:
         start = float(shot["start"])
         end = float(shot["end"])
         duration = max(0.1, end - start)
-        chunks = _subtitle_chunks(str(shot.get("voiceover", "")), max_width)
+        chunks = _subtitle_chunks(str(shot.get("voiceover", "")))
         weights = [max(1, len(chunk)) for chunk in chunks]
         total_weight = max(1, sum(weights))
         cursor = start
@@ -114,7 +99,7 @@ def _subtitle_events(shots: list[dict[str, Any]], max_width: int) -> list[dict[s
 
 def write_subtitles(shots: list[dict[str, Any]], srt_path: Path, ass_path: Path, size: tuple[int, int] | None = None) -> None:
     width, height = size or (W, H)
-    events = _subtitle_events(shots, max(360, width - 180))
+    events = _subtitle_events(shots)
     srt = []
     for i, event in enumerate(events, 1):
         srt.append(f"{i}\n{_srt_ts(event['start'])} --> {_srt_ts(event['end'])}\n{event['text']}\n")
