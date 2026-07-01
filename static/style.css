@@ -1074,6 +1074,12 @@ textarea {
   transform: translateY(-1px);
 }
 
+.shot-redraw-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
 .shot-thumb img {
   width: 100%;
   height: 100%;

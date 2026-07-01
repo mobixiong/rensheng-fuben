@@ -23,8 +23,25 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     imageJobs().delete(Number(index));
   }
 
-  function clearActiveImageJobs() {
-    imageJobs().clear();
+  function clearActiveImageJobs(indexes = null) {
+    if (!indexes) {
+      imageJobs().clear();
+      return;
+    }
+    for (const index of indexes) clearActiveImageJob(index);
+  }
+
+  function syncImageGenerationActive() {
+    state.imageGenerationActive = imageJobs().size > 0;
+  }
+
+  function activeImageIndexes(extraIndexes = []) {
+    const indexes = Array.from(imageJobs().keys());
+    for (const index of extraIndexes) {
+      const shotIndex = Number(index);
+      if (Number.isInteger(shotIndex) && shotIndex >= 0) indexes.push(shotIndex);
+    }
+    return new Set(indexes);
   }
 
   function clearImageRuntimeFields(shot) {
@@ -123,8 +140,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     ui.setBusy(true);
     ui.setStatus("并行生图", "busy");
     state.imageGenerationActive = true;
-    clearActiveImageJobs();
     clearTimeout(state.saveTimer);
+    let pendingIndexes = [];
     try {
       await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
       let story = withCurrentImageSize(storyView.read());
@@ -132,7 +149,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       if (!Array.isArray(shots) || shots.length === 0) {
         throw new Error("分镜列表为空");
       }
-      const pendingIndexes = shots
+      pendingIndexes = shots
         .map((shot, index) => hasShotImage(shot) ? -1 : index)
         .filter((index) => index >= 0);
       pendingIndexes.forEach((index) => setActiveImageJob(index, IMAGE_STATUS.generating));
@@ -144,7 +161,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
           _image_status: hasShotImage(shot) ? IMAGE_STATUS.done : IMAGE_STATUS.generating,
         })),
       };
-      normalizeIdleImageStatuses(story, pendingIndexes);
+      normalizeIdleImageStatuses(story, activeImageIndexes(pendingIndexes));
       storyView.write(story);
 
       if (pendingIndexes.length === 0) {
@@ -201,8 +218,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       await projectStore.queueSave({ applyState: false, refreshProjects: false });
     } finally {
       await state.projectSaveQueue.catch(() => null);
-      state.imageGenerationActive = false;
-      clearActiveImageJobs();
+      clearActiveImageJobs(pendingIndexes);
+      syncImageGenerationActive();
       storyView.renderShotGrid();
       await projectStore.loadList().catch(() => null);
       ui.setBusy(false);
@@ -210,11 +227,12 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
   }
 
   async function redrawShot(index) {
+    const shotIndex = Number(index);
+    if (imageJobs().has(shotIndex)) return;
     settings.persist();
     ui.setBusy(true);
     ui.setStatus("重抽中", "busy");
     state.imageGenerationActive = true;
-    clearActiveImageJobs();
     clearTimeout(state.saveTimer);
     try {
       await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
@@ -223,7 +241,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
         story = { ...story, project_id: projectStore.mediaProjectId() || createImageProjectId() };
         storyView.write(story);
       }
-      normalizeIdleImageStatuses(story, [index]);
+      normalizeIdleImageStatuses(story, activeImageIndexes([shotIndex]));
       if (story.shots?.[index]) {
         const now = Date.now();
         setActiveImageJob(index, IMAGE_STATUS.redrawing);
@@ -263,8 +281,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       await projectStore.queueSave({ applyState: false, refreshProjects: false });
     } finally {
       await state.projectSaveQueue.catch(() => null);
-      state.imageGenerationActive = false;
-      clearActiveImageJobs();
+      clearActiveImageJob(shotIndex);
+      syncImageGenerationActive();
       storyView.renderShotGrid();
       await projectStore.loadList().catch(() => null);
       ui.setBusy(false);
@@ -276,8 +294,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     ui.setBusy(true);
     ui.setStatus("批量重抽", "busy");
     state.imageGenerationActive = true;
-    clearActiveImageJobs();
     clearTimeout(state.saveTimer);
+    let availableRedrawIndexes = [];
     try {
       await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
       let story = withCurrentImageSize(storyView.read());
@@ -286,12 +304,16 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
         throw new Error("分镜列表为空");
       }
       const redrawIndexes = normalizeShotIndexes(indexes, shots.length);
+      availableRedrawIndexes = redrawIndexes.filter((index) => !imageJobs().has(index));
       if (redrawIndexes.length === 0) {
         throw new Error("请先点击选择要重抽的图片");
       }
-      const redrawSet = new Set(redrawIndexes);
-      redrawIndexes.forEach((index) => setActiveImageJob(index, IMAGE_STATUS.redrawing));
-      normalizeIdleImageStatuses(story, redrawSet);
+      if (availableRedrawIndexes.length === 0) {
+        throw new Error("选中的图片正在生成或重抽中");
+      }
+      const redrawSet = new Set(availableRedrawIndexes);
+      availableRedrawIndexes.forEach((index) => setActiveImageJob(index, IMAGE_STATUS.redrawing));
+      normalizeIdleImageStatuses(story, activeImageIndexes(availableRedrawIndexes));
       const normalizedShots = story.shots || shots;
       story = {
         ...story,
@@ -306,7 +328,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       storyView.write(story);
 
       let completed = 0;
-      const results = await runWithConcurrency(redrawIndexes, IMAGE_CONCURRENCY_LIMIT, async (index) => {
+      const results = await runWithConcurrency(availableRedrawIndexes, IMAGE_CONCURRENCY_LIMIT, async (index) => {
         try {
           const data = await regenerateShotWithRetry(story, index, { initialStatus: IMAGE_STATUS.redrawing });
           story = mergeShotImageResult(story, data, index);
@@ -316,11 +338,11 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
           els.result.textContent = JSON.stringify({
             "批量重抽": "进行中",
             "已完成": completed,
-            "总数": redrawIndexes.length,
+            "总数": availableRedrawIndexes.length,
             "最近完成镜头": index + 1,
             "项目编号": story.project_id,
           }, null, 2);
-          ui.setStatus(`重抽 ${completed}/${redrawIndexes.length}`, "busy");
+          ui.setStatus(`重抽 ${completed}/${availableRedrawIndexes.length}`, "busy");
           await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
           return data;
         } catch (err) {
@@ -330,12 +352,12 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       });
       const failed = results.filter((item) => item.status === "rejected");
       if (failed.length) {
-        throw new Error(`批量重抽完成 ${completed}/${redrawIndexes.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
+        throw new Error(`批量重抽完成 ${completed}/${availableRedrawIndexes.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
       }
 
       els.result.textContent = JSON.stringify({
         "批量重抽": "完成",
-        "本次重抽": redrawIndexes.length,
+        "本次重抽": availableRedrawIndexes.length,
         "项目编号": story.project_id,
       }, null, 2);
       await projectStore.queueSave({ applyState: false, refreshProjects: false });
@@ -346,8 +368,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       await projectStore.queueSave({ applyState: false, refreshProjects: false });
     } finally {
       await state.projectSaveQueue.catch(() => null);
-      state.imageGenerationActive = false;
-      clearActiveImageJobs();
+      clearActiveImageJobs(availableRedrawIndexes);
+      syncImageGenerationActive();
       storyView.renderShotGrid();
       await projectStore.loadList().catch(() => null);
       ui.setBusy(false);

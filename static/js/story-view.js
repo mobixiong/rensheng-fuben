@@ -237,9 +237,7 @@ export function createStoryView({
             ? IMAGE_STATUS.done
             : !src && persistedTransientStatus && !getImageGenerationActive?.()
               ? IMAGE_STATUS.pending
-              : !src && persistedTransientStatus
-                ? IMAGE_STATUS.pending
-                : rawStatus);
+              : rawStatus);
       const placeholderText = status === IMAGE_STATUS.redrawing
         ? "重抽中"
         : status === IMAGE_STATUS.generating
@@ -274,6 +272,9 @@ export function createStoryView({
           : src
             ? "done"
             : "pending";
+      const isImageBusy = [IMAGE_STATUS.redrawing, IMAGE_STATUS.generating, IMAGE_STATUS.retrying].includes(status);
+      const redrawDisabled = isImageBusy ? " disabled" : "";
+      const redrawTitle = isImageBusy ? statusLabel : "重抽";
       const errorTitle = shot._image_error ? ` title="${escapeHtml(String(shot._image_error))}"` : "";
       const thumb = src
         ? `<img src="${src}" alt="镜头 ${index + 1}" />`
@@ -302,7 +303,7 @@ export function createStoryView({
         <article class="shot-card${selected}" data-shot="${index}" style="--shot-ratio: ${ratio}">
           <div class="shot-thumb" data-select-shot="${index}" role="button" tabindex="0" aria-pressed="${selected ? "true" : "false"}" aria-label="切换选择镜头 ${index + 1}">
             <span class="state-badge ${statusClass}"${errorTitle}>${statusLabel}</span>
-            <button class="shot-redraw-button" type="button" data-redraw-shot="${index}" title="重抽" aria-label="重抽镜头 ${index + 1}">↻</button>
+            <button class="shot-redraw-button" type="button" data-redraw-shot="${index}" title="${escapeHtml(redrawTitle)}" aria-label="重抽镜头 ${index + 1}"${redrawDisabled}>↻</button>
             ${thumb}
           </div>
           <div class="shot-info">

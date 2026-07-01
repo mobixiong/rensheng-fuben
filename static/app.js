@@ -229,6 +229,7 @@ function bindEvents() {
 
     const redrawButton = event.target.closest("[data-redraw-shot]");
     if (redrawButton) {
+      if (redrawButton.disabled) return;
       workflow.redrawShot(Number(redrawButton.dataset.redrawShot));
       return;
     }
