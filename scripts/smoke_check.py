@@ -164,6 +164,7 @@ def run(base_url: str, include_external: bool) -> None:
         "/api/project/current",
         "/api/prompt/default",
         "/api/prompt/image",
+        "/api/prompt/improve-image",
     ]:
         status, content_type, _ = read_json(f"{base_url}{path}")
         check(status == 200 and "application/json" in content_type, f"GET {path}", content_type)

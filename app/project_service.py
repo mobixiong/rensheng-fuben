@@ -9,7 +9,6 @@ from typing import Any
 from .paths import ACTIVE_PROJECT, LEGACY_PROJECT_STATE, PROJECTS_DIR, WORKSPACE
 
 TRANSIENT_IMAGE_STATUSES = {"generating", "retrying", "redrawing"}
-TRANSIENT_IMAGE_STATUS_TTL_SECONDS = 20 * 60
 PROMPT_POLICY_ERROR_MARKERS = (
     "content_policy_violation",
     "policy_violation",
@@ -63,32 +62,6 @@ def _project_image_for_index(image_dir: Path, index: int) -> Path | None:
     return matches[0] if matches else None
 
 
-def _status_started_at_seconds(shot: dict[str, Any]) -> float:
-    raw = shot.get("_image_status_started_at") or shot.get("_image_status_updated_at") or 0
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return 0
-    if value > 10_000_000_000:
-        value /= 1000
-    return value
-
-
-def _transient_status_is_fresh(shot: dict[str, Any]) -> bool:
-    started_at = _status_started_at_seconds(shot)
-    return bool(started_at and time.time() - started_at < TRANSIENT_IMAGE_STATUS_TTL_SECONDS)
-
-
-def _image_is_newer_than_status(image_path: Path, shot: dict[str, Any]) -> bool:
-    started_at = _status_started_at_seconds(shot)
-    if not started_at:
-        return False
-    try:
-        return image_path.stat().st_mtime >= started_at
-    except OSError:
-        return False
-
-
 def _clear_image_runtime_fields(shot: dict[str, Any]) -> None:
     shot.pop("_image_attempt", None)
     shot.pop("_image_status_started_at", None)
@@ -98,12 +71,11 @@ def _clear_image_runtime_fields(shot: dict[str, Any]) -> None:
 def _mark_shot_image_done(shot: dict[str, Any], project_id: str, image_path: Path) -> None:
     shot["image_path"] = str(image_path.resolve())
     shot["image_url"] = f"/workspace/projects/{project_id}/images/{image_path.name}"
-    if shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES and _transient_status_is_fresh(shot) and not _image_is_newer_than_status(image_path, shot):
-        return
-    if shot.get("_image_status") in {None, "", "pending", "generating", "retrying", "redrawing"}:
-        shot["_image_status"] = "done"
+    shot["_image_status"] = "done"
     _clear_image_runtime_fields(shot)
     shot.pop("_image_error", None)
+    shot.pop("_image_error_category", None)
+    shot.pop("_image_error_code", None)
 
 
 def _has_prompt_policy_error(value: Any) -> bool:
@@ -213,12 +185,11 @@ def _copy_project_images(state: dict[str, Any], target_project_dir: Path) -> Non
         if target and target.exists():
             _mark_shot_image_done(shot, state["project_id"], target)
         elif shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES:
-            if not _transient_status_is_fresh(shot):
-                shot["_image_status"] = "pending"
-                _clear_image_runtime_fields(shot)
-                shot.pop("_image_error", None)
-                shot.pop("_image_error_category", None)
-                shot.pop("_image_error_code", None)
+            shot["_image_status"] = "pending"
+            _clear_image_runtime_fields(shot)
+            shot.pop("_image_error", None)
+            shot.pop("_image_error_category", None)
+            shot.pop("_image_error_code", None)
     _mark_prompt_policy_errors(state)
 
 
@@ -237,12 +208,11 @@ def hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, 
         if image_path and image_path.exists():
             _mark_shot_image_done(shot, project_id, image_path)
         elif shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES:
-            if not _transient_status_is_fresh(shot):
-                shot["_image_status"] = "pending"
-                _clear_image_runtime_fields(shot)
-                shot.pop("_image_error", None)
-                shot.pop("_image_error_category", None)
-                shot.pop("_image_error_code", None)
+            shot["_image_status"] = "pending"
+            _clear_image_runtime_fields(shot)
+            shot.pop("_image_error", None)
+            shot.pop("_image_error_category", None)
+            shot.pop("_image_error_code", None)
     _mark_prompt_policy_errors(state)
     return state
 
@@ -270,6 +240,7 @@ def write_project_files(state: dict[str, Any]) -> dict[str, Any]:
     (prompts_dir / "copy_prompt.txt").write_text(str(payload.get("copy_prompt") or ""), encoding="utf-8")
     (prompts_dir / "copy_to_story_prompt.txt").write_text(str(payload.get("copy_to_story_prompt") or ""), encoding="utf-8")
     (prompts_dir / "image_prompt.txt").write_text(str(payload.get("image_prompt") or ""), encoding="utf-8")
+    (prompts_dir / "improve_image_prompt.txt").write_text(str(payload.get("improve_image_prompt") or ""), encoding="utf-8")
     if isinstance(story, dict):
         (target_project_dir / "story.json").write_text(json.dumps(story, ensure_ascii=False, indent=2), encoding="utf-8")
     elif payload.get("story_json"):

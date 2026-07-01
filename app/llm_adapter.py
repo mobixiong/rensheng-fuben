@@ -11,6 +11,7 @@ from .paths import ROOT
 DEFAULT_PROMPT_PATH = ROOT / "prompts" / "story_shots.md"
 COPY_TO_STORY_PROMPT_PATH = ROOT / "prompts" / "copy_to_story.md"
 THEME_PROMPT_PATH = ROOT / "prompts" / "theme_plan.md"
+IMPROVE_IMAGE_PROMPT_PATH = ROOT / "prompts" / "image_prompt_improve.md"
 GEMINI_WEB2API_BASE_URL = "http://127.0.0.1:8081/v1"
 GEMINI_WEB2API_MODEL = "gemini-3.5-flash-thinking"
 
@@ -48,6 +49,10 @@ def load_copy_to_story_prompt() -> str:
 
 def load_theme_prompt() -> str:
     return THEME_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def load_improve_image_prompt() -> str:
+    return IMPROVE_IMAGE_PROMPT_PATH.read_text(encoding="utf-8")
 
 
 def _endpoint(base_url: str) -> str:
@@ -231,19 +236,17 @@ def generate_story_from_copy(
         raise LLMError(f"LLM did not return valid storyboard JSON: {content[:1000]}") from exc
 
 
-def improve_image_prompt(story: dict[str, Any], shot_index: int, cfg: LLMConfig) -> dict[str, Any]:
+def improve_image_prompt(
+    story: dict[str, Any],
+    shot_index: int,
+    cfg: LLMConfig,
+    system_prompt: str | None = None,
+) -> dict[str, Any]:
     shots = story.get("shots") or []
     if not isinstance(shots, list) or shot_index < 0 or shot_index >= len(shots):
         raise LLMError("shot_index out of range")
     shot = shots[shot_index] or {}
-    system_prompt = (
-        "你是短视频分镜生图提示词优化师。"
-        "请只输出一条中文图片提示词，不要输出 JSON、解释、编号或 Markdown。"
-        "目标是让生图更稳定、更贴合口播和画面描述，同时降低被安全策略拦截的风险。"
-        "提示词应包含主体、场景、构图、光线、情绪、风格；不要包含可读文字、Logo、水印、血腥、肢解、尸体细节、露骨暴力或色情。"
-        "如果原描述有暴力/血腥/恐怖内容，请改写成隐喻化、非血腥、镜头语言化的表达。"
-        "长度控制在 40 到 90 个中文字符。"
-    )
+    prompt = system_prompt or load_improve_image_prompt()
     user_content = "\n".join([
         f"故事标题：{story.get('title') or ''}",
         f"整体风格：{story.get('style_preset') or ''}",
@@ -253,7 +256,7 @@ def improve_image_prompt(story: dict[str, Any], shot_index: int, cfg: LLMConfig)
         f"原图片提示词：{shot.get('image_prompt') or ''}",
         "请输出优化后的图片提示词：",
     ])
-    content = _provider_text(system_prompt, user_content, replace(cfg, temperature=cfg.temperature or 0.4))
+    content = _provider_text(prompt, user_content, replace(cfg, temperature=cfg.temperature or 0.4))
     prompt = content.strip().strip("`").strip()
     for prefix in ("图片提示词：", "优化后的图片提示词：", "提示词："):
         if prompt.startswith(prefix):

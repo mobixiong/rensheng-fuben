@@ -15,6 +15,7 @@ const state = {
   restoringProject: false,
   currentProjectId: "",
   imageGenerationActive: false,
+  activeImageJobs: new Map(),
   projectSaveQueue: Promise.resolve(),
 };
 
@@ -112,7 +113,7 @@ function toggleSelectedShot(index) {
   } else {
     state.selectedShots.add(shotIndex);
   }
-  storyView.updateSelection();
+  storyView.updateSelection({ persist: true });
 }
 
 function openImagePreviewFromThumb(thumb) {
@@ -187,6 +188,7 @@ const storyView = createStoryView({
   setSelectedShots,
   getActiveTab: () => state.activeTab,
   getImageGenerationActive: () => state.imageGenerationActive,
+  getActiveImageStatus: (index) => state.activeImageJobs?.get(Number(index))?.status || "",
   onStoryChanged: () => projectStore?.scheduleSave(),
 });
 
@@ -316,6 +318,9 @@ function bindEvents() {
   $("resetImagePrompt").addEventListener("click", () => {
     settings.resetImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
+  $("resetImproveImagePrompt")?.addEventListener("click", () => {
+    settings.resetImproveImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
+  });
 
   document.addEventListener("focusout", (event) => {
     const editor = event.target.closest?.("[data-shot-prompt-editor]");
@@ -338,6 +343,11 @@ function bindEvents() {
     projectStore.scheduleSave();
   });
   els.imagePrompt.addEventListener("input", () => {
+    settings.persist();
+    storyView.updatePromptMeta();
+    projectStore.scheduleSave();
+  });
+  els.improveImagePrompt?.addEventListener("input", () => {
     settings.persist();
     storyView.updatePromptMeta();
     projectStore.scheduleSave();

@@ -144,16 +144,26 @@ def build_shot_image_prompt(
 ) -> str:
     base = fixed_prompt or load_image_prompt()
     ratio_label = _image_ratio_label(size or shot.get("image_size") or story.get("image_size") or "9:16")
-    return "\n\n".join([
+    shot_prompt = str(shot.get("image_prompt") or "").strip()
+    parts = [
         base,
         "当前故事整体风格补充：",
         str(story.get("style_preset") or ""),
-        "当前分镜信息：",
-        f"口播：{shot.get('voiceover', '')}",
-        f"画面描述：{shot.get('visual', '')}",
-        f"补充提示词：{shot.get('image_prompt', '')}",
-        f"请生成一张{ratio_label}分镜图。画面中不要出现可读文字、字幕、Logo、水印、二维码、品牌名或界面文字。",
-    ])
+    ]
+    if shot_prompt:
+        parts.extend([
+            "图片提示词（最高优先级，生图唯一画面内容来源）：",
+            shot_prompt,
+            "请以这条图片提示词为准，不扩写未提供的画面内容。",
+        ])
+    else:
+        parts.extend([
+            "当前分镜信息：",
+            f"口播：{shot.get('voiceover', '')}",
+            f"画面描述：{shot.get('visual', '')}",
+        ])
+    parts.append(f"请生成一张{ratio_label}分镜图。画面中不要出现可读文字、字幕、Logo、水印、二维码、品牌名或界面文字。")
+    return "\n\n".join(parts)
 
 
 def _workspace_project_id(value: Any) -> str:

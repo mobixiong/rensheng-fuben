@@ -8,6 +8,7 @@ import {
   GEMINI_WEB2API_DEFAULT_BASE_URL,
   GEMINI_WEB2API_DEFAULT_MODEL,
   IMAGE_SIZES,
+  IMPROVE_IMAGE_PROMPT_VERSION,
   INTRO_TEMPLATES,
   MINIMAX_TTS_DEFAULT_BASE_URL,
   MINIMAX_TTS_DEFAULT_MODEL,
@@ -22,6 +23,7 @@ export function createSettings({ els }) {
   let defaultCopyPrompts = {};
   let defaultCopyToStoryPrompt = "";
   let defaultImagePrompt = "";
+  let defaultImproveImagePrompt = "";
 
   function copyPromptPreset() {
     return COPY_PROMPT_PRESETS.includes(els.copyPromptPreset?.value) ? els.copyPromptPreset.value : DEFAULT_COPY_PROMPT_PRESET;
@@ -117,6 +119,8 @@ export function createSettings({ els }) {
       copyToStoryPrompt: els.copyToStoryPrompt?.value || "",
       copyToStoryPromptVersion: COPY_TO_STORY_PROMPT_VERSION,
       imagePrompt: els.imagePrompt.value,
+      improveImagePrompt: els.improveImagePrompt?.value || "",
+      improveImagePromptVersion: IMPROVE_IMAGE_PROMPT_VERSION,
     });
     writeJson(sessionStorage, SECRET_SETTINGS_KEY, {
       apiKey: els.apiKey.value,
@@ -188,17 +192,21 @@ export function createSettings({ els }) {
         els.copyToStoryPrompt.value = s.copyToStoryPrompt;
       }
       if (s.imagePrompt) els.imagePrompt.value = s.imagePrompt;
+      if (els.improveImagePrompt && s.improveImagePrompt && s.improveImagePromptVersion === IMPROVE_IMAGE_PROMPT_VERSION) {
+        els.improveImagePrompt.value = s.improveImagePrompt;
+      }
       applyTextProviderDefaults();
       updateTtsProviderVisibility();
     } catch {}
   }
 
   async function loadPromptDefaults(fetchJson, updatePromptMeta) {
-    const [copyData, copyXianxiaData, copyToStoryData, imageData] = await Promise.all([
+    const [copyData, copyXianxiaData, copyToStoryData, imageData, improveImageData] = await Promise.all([
       fetchJson("/api/prompt/default"),
       fetchJson("/api/prompt/copy-xianxia"),
       fetchJson("/api/prompt/copy-to-story"),
       fetchJson("/api/prompt/image"),
+      fetchJson("/api/prompt/improve-image"),
     ]);
     defaultCopyPrompts = {
       reality: copyData.prompt || "",
@@ -207,12 +215,17 @@ export function createSettings({ els }) {
     defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality || "";
     defaultCopyToStoryPrompt = copyToStoryData.prompt || "";
     defaultImagePrompt = imageData.prompt || "";
+    defaultImproveImagePrompt = improveImageData.prompt || "";
     if (!els.copyPrompt.value.trim()) els.copyPrompt.value = defaultCopyPrompt;
     if (els.copyToStoryPrompt && !els.copyToStoryPrompt.value.trim()) {
       els.copyToStoryPrompt.value = defaultCopyToStoryPrompt;
       persist();
     }
     if (!els.imagePrompt.value.trim()) els.imagePrompt.value = defaultImagePrompt;
+    if (els.improveImagePrompt && !els.improveImagePrompt.value.trim()) {
+      els.improveImagePrompt.value = defaultImproveImagePrompt;
+      persist();
+    }
     updatePromptMeta();
   }
 
@@ -242,6 +255,14 @@ export function createSettings({ els }) {
 
   function resetImagePrompt(updatePromptMeta, scheduleSave) {
     els.imagePrompt.value = defaultImagePrompt;
+    persist();
+    updatePromptMeta();
+    scheduleSave();
+  }
+
+  function resetImproveImagePrompt(updatePromptMeta, scheduleSave) {
+    if (!els.improveImagePrompt) return;
+    els.improveImagePrompt.value = defaultImproveImagePrompt;
     persist();
     updatePromptMeta();
     scheduleSave();
@@ -348,6 +369,7 @@ export function createSettings({ els }) {
       model: els.model.value.trim(),
       api_key: els.apiKey.value.trim(),
       temperature: 0.4,
+      system_prompt: els.improveImagePrompt?.value || "",
     };
   }
 
@@ -360,6 +382,7 @@ export function createSettings({ els }) {
     applyCopyPromptPreset,
     resetCopyToStoryPrompt,
     resetImagePrompt,
+    resetImproveImagePrompt,
     textPayload,
     storyPayload,
     themePayload,

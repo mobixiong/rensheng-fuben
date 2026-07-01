@@ -72,6 +72,7 @@ class ImproveImagePromptRequest(BaseModel):
     api_key: str = ""
     model: str = ""
     temperature: float = 0.4
+    system_prompt: str | None = None
 
 
 class RenderRequest(BaseModel):

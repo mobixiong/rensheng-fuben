@@ -1,7 +1,15 @@
 import { IMAGE_STATUS, IMAGE_SIZES, IMAGE_TRANSIENT_STATUSES } from "./constants.js";
 import { escapeHtml } from "./html.js";
 
-export function createStoryView({ els, getSelectedShots, setSelectedShots, getActiveTab, getImageGenerationActive, onStoryChanged }) {
+export function createStoryView({
+  els,
+  getSelectedShots,
+  setSelectedShots,
+  getActiveTab,
+  getImageGenerationActive,
+  getActiveImageStatus,
+  onStoryChanged,
+}) {
   function read() {
     return JSON.parse(els.editor.value);
   }
@@ -39,6 +47,7 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
     if (els.copyMeta) els.copyMeta.textContent = `${els.copyOutput.value.length} 字`;
     if (els.copyToStoryPromptMeta) els.copyToStoryPromptMeta.textContent = `${els.copyToStoryPrompt.value.length} 字`;
     if (els.imagePromptMeta) els.imagePromptMeta.textContent = `${els.imagePrompt.value.length} 字`;
+    if (els.improveImagePromptMeta) els.improveImagePromptMeta.textContent = `${els.improveImagePrompt?.value.length || 0} 字`;
   }
 
   function withImageVersion(src, shot) {
@@ -139,7 +148,8 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
     return `已选 ${count} 张图片`;
   }
 
-  function updateSelection() {
+  function updateSelection(options = {}) {
+    const { persist = false } = options;
     const cards = Array.from(els.shotGrid.querySelectorAll(".shot-card"));
     const selectedShots = normalizeSelectedShots(cards.length);
     els.selectedShotLabel.textContent = selectionLabel(selectedShots.size, cards.length);
@@ -150,6 +160,7 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
       const thumb = card.querySelector(".shot-thumb");
       if (thumb) thumb.setAttribute("aria-pressed", String(selected));
     }
+    if (persist) onStoryChanged();
   }
 
   function getShotImagePrompt(index) {
@@ -209,6 +220,9 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
       const src = shotImageSrc(shot);
       const ratio = shotImageRatio(shot, story);
       const rawStatus = shot._image_status || "";
+      const activeStatus = getActiveImageStatus?.(index) || "";
+      const activeTransientStatus = IMAGE_TRANSIENT_STATUSES.includes(activeStatus) ? activeStatus : "";
+      const persistedTransientStatus = IMAGE_TRANSIENT_STATUSES.includes(rawStatus);
       const errorText = String(shot._image_error || "");
       const hasPolicyError = rawStatus === IMAGE_STATUS.policyError
         || shot._image_error_category === "prompt_policy"
@@ -218,9 +232,14 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
         || errorText.includes("防护限制");
       const status = hasPolicyError
         ? IMAGE_STATUS.policyError
-        : !src && !getImageGenerationActive?.() && IMAGE_TRANSIENT_STATUSES.includes(rawStatus)
-        ? IMAGE_STATUS.pending
-        : rawStatus;
+        : activeTransientStatus
+          || (src && persistedTransientStatus
+            ? IMAGE_STATUS.done
+            : !src && persistedTransientStatus && !getImageGenerationActive?.()
+              ? IMAGE_STATUS.pending
+              : !src && persistedTransientStatus
+                ? IMAGE_STATUS.pending
+                : rawStatus);
       const placeholderText = status === IMAGE_STATUS.redrawing
         ? "重抽中"
         : status === IMAGE_STATUS.generating

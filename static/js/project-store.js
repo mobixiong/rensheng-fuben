@@ -6,6 +6,7 @@ import {
   DEFAULT_IMAGE_SIZE,
   DEFAULT_INTRO_TEMPLATE,
   IMAGE_SIZES,
+  IMPROVE_IMAGE_PROMPT_VERSION,
   INTRO_TEMPLATES,
   PROJECT_PROGRESS_SAVE_INTERVAL_MS,
   PROJECT_SAVE_DELAY_MS,
@@ -67,6 +68,8 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       copy_to_story_prompt: els.copyToStoryPrompt?.value || "",
       copy_to_story_prompt_version: COPY_TO_STORY_PROMPT_VERSION,
       image_prompt: els.imagePrompt.value,
+      improve_image_prompt: els.improveImagePrompt?.value || "",
+      improve_image_prompt_version: IMPROVE_IMAGE_PROMPT_VERSION,
       image_size: els.imageSize?.value || DEFAULT_IMAGE_SIZE,
       intro_template: els.introTemplate?.value || "none",
       intro_image_seconds: els.introImageSeconds?.value || "0.3",
@@ -130,6 +133,8 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
 
   function applyProjectState(projectStateData, options = {}) {
     state.restoringProject = true;
+    state.imageGenerationActive = false;
+    if (state.activeImageJobs instanceof Map) state.activeImageJobs.clear();
     state.currentProjectId = projectStateData.project_id || state.currentProjectId || "";
     ui.setProjectMeta(
       state.currentProjectId,
@@ -158,6 +163,14 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       els.copyToStoryPrompt.value = projectStateData.copy_to_story_prompt;
     }
     if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
+    if (
+      els.improveImagePrompt
+      && typeof projectStateData.improve_image_prompt === "string"
+      && projectStateData.improve_image_prompt.trim()
+      && projectStateData.improve_image_prompt_version === IMPROVE_IMAGE_PROMPT_VERSION
+    ) {
+      els.improveImagePrompt.value = projectStateData.improve_image_prompt;
+    }
     if (els.imageSize && typeof projectStateData.image_size === "string") {
       els.imageSize.value = IMAGE_SIZES.includes(projectStateData.image_size)
         ? projectStateData.image_size
@@ -263,6 +276,8 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
   function createNew() {
     state.currentProjectId = "";
     state.selectedShots = new Set();
+    state.imageGenerationActive = false;
+    if (state.activeImageJobs instanceof Map) state.activeImageJobs.clear();
     if (els.themeBrief) els.themeBrief.value = "";
     if (els.themeIntro) els.themeIntro.value = "";
     if (els.themeRevision) els.themeRevision.value = "";

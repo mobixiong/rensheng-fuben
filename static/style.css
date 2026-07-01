@@ -535,6 +535,11 @@ textarea {
   resize: vertical;
 }
 
+.settings-prompt-textarea {
+  min-height: 220px;
+  font-size: 12px;
+}
+
 .project-create-panel,
 .flow-section,
 .image-prompt-panel,
@@ -1694,6 +1699,18 @@ pre {
 
 .settings-form .field span {
   color: var(--text-secondary);
+}
+
+.prompt-settings-form {
+  grid-template-columns: 120px minmax(0, 1fr);
+}
+
+.settings-form .full-field {
+  align-items: start;
+}
+
+.settings-form .full-field span {
+  padding-top: 10px;
 }
 
 .test-result {

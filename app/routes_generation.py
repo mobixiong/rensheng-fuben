@@ -93,7 +93,7 @@ def text_copy_to_story(req: CopyToStoryRequest) -> dict[str, Any]:
 @router.post("/api/text/improve-image-prompt")
 def text_improve_image_prompt(req: ImproveImagePromptRequest) -> dict[str, Any]:
     try:
-        return improve_image_prompt(req.story, req.shot_index, LLMConfig.from_payload(req.model_dump()))
+        return improve_image_prompt(req.story, req.shot_index, LLMConfig.from_payload(req.model_dump()), req.system_prompt)
     except LLMError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

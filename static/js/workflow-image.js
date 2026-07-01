@@ -1,4 +1,4 @@
-import { IMAGE_CONCURRENCY_LIMIT, IMAGE_RETRY_LIMIT, IMAGE_STATUS } from "./constants.js";
+import { IMAGE_CONCURRENCY_LIMIT, IMAGE_RETRY_LIMIT, IMAGE_STATUS, IMAGE_TRANSIENT_STATUSES } from "./constants.js";
 import {
   createImageProjectId,
   hasShotImage,
@@ -8,6 +8,50 @@ import {
 } from "./workflow-utils.js";
 
 export function createImageWorkflow({ els, ui, api, settings, storyView, projectStore, state, withCurrentImageSize }) {
+  function imageJobs() {
+    if (!(state.activeImageJobs instanceof Map)) state.activeImageJobs = new Map();
+    return state.activeImageJobs;
+  }
+
+  function setActiveImageJob(index, status) {
+    const shotIndex = Number(index);
+    if (!Number.isInteger(shotIndex) || shotIndex < 0) return;
+    imageJobs().set(shotIndex, { status, startedAt: Date.now() });
+  }
+
+  function clearActiveImageJob(index) {
+    imageJobs().delete(Number(index));
+  }
+
+  function clearActiveImageJobs() {
+    imageJobs().clear();
+  }
+
+  function clearImageRuntimeFields(shot) {
+    delete shot._image_attempt;
+    delete shot._image_status_started_at;
+    delete shot._image_status_updated_at;
+    delete shot._image_error;
+    delete shot._image_error_code;
+    delete shot._image_error_category;
+  }
+
+  function normalizeIdleImageStatuses(story, activeIndexes = []) {
+    const activeSet = activeIndexes instanceof Set ? activeIndexes : new Set(activeIndexes.map(Number));
+    if (!Array.isArray(story?.shots)) return story;
+    story.shots = story.shots.map((shot, index) => {
+      if (!shot || activeSet.has(index)) return shot;
+      if (!IMAGE_TRANSIENT_STATUSES.includes(shot._image_status)) return shot;
+      const nextShot = {
+        ...shot,
+        _image_status: hasShotImage(shot) ? IMAGE_STATUS.done : IMAGE_STATUS.pending,
+      };
+      clearImageRuntimeFields(nextShot);
+      return nextShot;
+    });
+    return story;
+  }
+
   function isPromptPolicyError(err) {
     const text = `${err?.message || ""} ${err?.code || ""} ${err?.category || ""}`.toLowerCase();
     return err?.category === "prompt_policy"
@@ -28,6 +72,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
 
   async function markShotFailed(story, index, err) {
     if (!story.shots?.[index]) return;
+    clearActiveImageJob(index);
     story.shots[index]._image_status = isPromptPolicyError(err) ? IMAGE_STATUS.policyError : IMAGE_STATUS.error;
     story.shots[index]._image_error = imageErrorMessage(err);
     story.shots[index]._image_error_code = err?.code || "";
@@ -42,6 +87,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     for (let attempt = 0; attempt <= IMAGE_RETRY_LIMIT; attempt += 1) {
       if (story.shots?.[index]) {
         const now = Date.now();
+        setActiveImageJob(index, attempt === 0 ? initialStatus : IMAGE_STATUS.retrying);
         story.shots[index]._image_status = attempt === 0 ? initialStatus : IMAGE_STATUS.retrying;
         story.shots[index]._image_attempt = attempt + 1;
         story.shots[index]._image_status_started_at = story.shots[index]._image_status_started_at || now;
@@ -61,6 +107,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
           break;
         }
         if (attempt < IMAGE_RETRY_LIMIT && story.shots?.[index]) {
+          setActiveImageJob(index, IMAGE_STATUS.retrying);
           story.shots[index]._image_status = IMAGE_STATUS.retrying;
           story.shots[index]._image_error = imageErrorMessage(err);
           storyView.write(story);
@@ -76,6 +123,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     ui.setBusy(true);
     ui.setStatus("并行生图", "busy");
     state.imageGenerationActive = true;
+    clearActiveImageJobs();
     clearTimeout(state.saveTimer);
     try {
       await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
@@ -87,6 +135,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       const pendingIndexes = shots
         .map((shot, index) => hasShotImage(shot) ? -1 : index)
         .filter((index) => index >= 0);
+      pendingIndexes.forEach((index) => setActiveImageJob(index, IMAGE_STATUS.generating));
       story = {
         ...story,
         project_id: projectStore.mediaProjectId() || story.project_id || createImageProjectId(),
@@ -95,6 +144,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
           _image_status: hasShotImage(shot) ? IMAGE_STATUS.done : IMAGE_STATUS.generating,
         })),
       };
+      normalizeIdleImageStatuses(story, pendingIndexes);
       storyView.write(story);
 
       if (pendingIndexes.length === 0) {
@@ -113,6 +163,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
         try {
           const data = await regenerateShotWithRetry(story, index);
           story = mergeShotImageResult(story, data, index);
+          clearActiveImageJob(index);
           completed += 1;
           storyView.write(story);
           els.result.textContent = JSON.stringify({
@@ -151,6 +202,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     } finally {
       await state.projectSaveQueue.catch(() => null);
       state.imageGenerationActive = false;
+      clearActiveImageJobs();
+      storyView.renderShotGrid();
       await projectStore.loadList().catch(() => null);
       ui.setBusy(false);
     }
@@ -161,6 +214,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     ui.setBusy(true);
     ui.setStatus("重抽中", "busy");
     state.imageGenerationActive = true;
+    clearActiveImageJobs();
     clearTimeout(state.saveTimer);
     try {
       await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
@@ -169,8 +223,10 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
         story = { ...story, project_id: projectStore.mediaProjectId() || createImageProjectId() };
         storyView.write(story);
       }
+      normalizeIdleImageStatuses(story, [index]);
       if (story.shots?.[index]) {
         const now = Date.now();
+        setActiveImageJob(index, IMAGE_STATUS.redrawing);
         story.shots[index]._image_status = IMAGE_STATUS.redrawing;
         story.shots[index]._image_attempt = 1;
         story.shots[index]._image_status_started_at = now;
@@ -183,6 +239,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       }
       const data = await regenerateShotWithRetry(story, index, { initialStatus: IMAGE_STATUS.redrawing });
       story = mergeShotImageResult(story, data, index);
+      clearActiveImageJob(index);
       storyView.write(story);
       els.result.textContent = JSON.stringify({
         "重抽": "完成",
@@ -207,6 +264,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     } finally {
       await state.projectSaveQueue.catch(() => null);
       state.imageGenerationActive = false;
+      clearActiveImageJobs();
+      storyView.renderShotGrid();
       await projectStore.loadList().catch(() => null);
       ui.setBusy(false);
     }
@@ -217,6 +276,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     ui.setBusy(true);
     ui.setStatus("批量重抽", "busy");
     state.imageGenerationActive = true;
+    clearActiveImageJobs();
     clearTimeout(state.saveTimer);
     try {
       await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
@@ -230,10 +290,13 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
         throw new Error("请先点击选择要重抽的图片");
       }
       const redrawSet = new Set(redrawIndexes);
+      redrawIndexes.forEach((index) => setActiveImageJob(index, IMAGE_STATUS.redrawing));
+      normalizeIdleImageStatuses(story, redrawSet);
+      const normalizedShots = story.shots || shots;
       story = {
         ...story,
         project_id: story.project_id || projectStore.mediaProjectId() || createImageProjectId(),
-        shots: shots.map((shot, index) => ({
+        shots: normalizedShots.map((shot, index) => ({
           ...shot,
           _image_status: redrawSet.has(index) ? IMAGE_STATUS.redrawing : shot._image_status,
           _image_status_started_at: redrawSet.has(index) ? Date.now() : shot._image_status_started_at,
@@ -247,6 +310,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
         try {
           const data = await regenerateShotWithRetry(story, index, { initialStatus: IMAGE_STATUS.redrawing });
           story = mergeShotImageResult(story, data, index);
+          clearActiveImageJob(index);
           completed += 1;
           storyView.write(story);
           els.result.textContent = JSON.stringify({
@@ -283,6 +347,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     } finally {
       await state.projectSaveQueue.catch(() => null);
       state.imageGenerationActive = false;
+      clearActiveImageJobs();
+      storyView.renderShotGrid();
       await projectStore.loadList().catch(() => null);
       ui.setBusy(false);
     }
