@@ -1140,6 +1140,74 @@ textarea {
   -webkit-line-clamp: 2;
 }
 
+.shot-prompt {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: text;
+  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.shot-prompt:hover {
+  border-color: var(--color-primary);
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.shot-prompt-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.shot-prompt-head strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shot-prompt-head span {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.shot-prompt p {
+  display: -webkit-box;
+  min-height: 34px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shot-prompt-editor {
+  width: 100%;
+  min-height: 104px;
+  max-height: 180px;
+  padding: 8px;
+  resize: vertical;
+  border: 1px solid var(--color-primary);
+  border-radius: calc(var(--radius-md) - 2px);
+  background: #fff;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .pearl-button {
   min-height: 28px;
   padding: 0 10px;

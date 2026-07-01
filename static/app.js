@@ -132,6 +132,34 @@ function closeImagePreview() {
   if (preview) preview.removeAttribute("src");
 }
 
+function escapeTextareaValue(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function closeShotPromptEditor(editor, save = true) {
+  if (!editor?.isConnected) return;
+  const index = Number(editor.dataset.shotPromptEditor);
+  if (save && Number.isInteger(index)) {
+    storyView.updateShotImagePrompt(index, editor.value);
+  } else {
+    storyView.renderShotGrid();
+  }
+}
+
+function openShotPromptEditor(promptNode) {
+  const index = Number(promptNode?.dataset.editShotPrompt);
+  if (!Number.isInteger(index)) return;
+  const value = storyView.getShotImagePrompt(index);
+  promptNode.innerHTML = `<textarea class="shot-prompt-editor" data-shot-prompt-editor="${index}" aria-label="镜头 ${index + 1} 图片提示词">${escapeTextareaValue(value)}</textarea>`;
+  const editor = promptNode.querySelector("textarea");
+  if (!editor) return;
+  editor.focus();
+  editor.setSelectionRange(editor.value.length, editor.value.length);
+}
+
 function applyTtsPreset() {
   if (els.ttsProvider?.value === "minimax") return;
   const option = els.ttsPreset?.selectedOptions?.[0];
@@ -208,6 +236,13 @@ function bindEvents() {
   });
 
   document.addEventListener("dblclick", (event) => {
+    const promptNode = event.target.closest("[data-edit-shot-prompt]");
+    if (promptNode) {
+      event.preventDefault();
+      event.stopPropagation();
+      openShotPromptEditor(promptNode);
+      return;
+    }
     if (event.target.closest("[data-redraw-shot]")) return;
     const thumb = event.target.closest("[data-select-shot]");
     if (!thumb) return;
@@ -273,6 +308,11 @@ function bindEvents() {
   });
   $("resetImagePrompt").addEventListener("click", () => {
     settings.resetImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
+  });
+
+  document.addEventListener("focusout", (event) => {
+    const editor = event.target.closest?.("[data-shot-prompt-editor]");
+    if (editor) closeShotPromptEditor(editor, true);
   });
 
   els.editor.addEventListener("input", storyView.onEditorInput);
@@ -373,6 +413,19 @@ function bindEvents() {
     settings.persist();
   });
   document.addEventListener("keydown", (event) => {
+    const promptEditor = event.target.closest?.("[data-shot-prompt-editor]");
+    if (promptEditor) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeShotPromptEditor(promptEditor, false);
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        closeShotPromptEditor(promptEditor, true);
+      }
+      return;
+    }
     if ((event.key === "Enter" || event.key === " ") && event.target.matches?.("[data-select-shot]")) {
       event.preventDefault();
       toggleSelectedShot(event.target.dataset.selectShot);
