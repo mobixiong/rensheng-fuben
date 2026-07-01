@@ -67,6 +67,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       copy_prompt_version: COPY_PROMPT_VERSION,
       copy_to_story_prompt: els.copyToStoryPrompt?.value || "",
       copy_to_story_prompt_version: COPY_TO_STORY_PROMPT_VERSION,
+      image_style_preset: els.imageStylePreset?.value || "short_video",
       image_prompt: els.imagePrompt.value,
       improve_image_prompt: els.improveImagePrompt?.value || "",
       improve_image_prompt_version: IMPROVE_IMAGE_PROMPT_VERSION,
@@ -162,7 +163,12 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     ) {
       els.copyToStoryPrompt.value = projectStateData.copy_to_story_prompt;
     }
+    if (els.imageStylePreset && typeof projectStateData.image_style_preset === "string") {
+      const exists = Array.from(els.imageStylePreset.options).some((option) => option.value === projectStateData.image_style_preset);
+      if (exists) els.imageStylePreset.value = projectStateData.image_style_preset;
+    }
     if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
+    settings.syncImageStylePresetPrompt?.(storyView.updatePromptMeta);
     if (
       els.improveImagePrompt
       && typeof projectStateData.improve_image_prompt === "string"

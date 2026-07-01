@@ -2,7 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images, test_image_connection
+from .image_adapter import ImageConfig, ImageError, apply_cover_from_source, generate_cover_image, generate_one_story_image, generate_story_images, test_image_connection
 from .llm_adapter import (
     LLMConfig,
     LLMError,
@@ -16,6 +16,8 @@ from .llm_adapter import (
 )
 from .schemas import (
     CopyToStoryRequest,
+    CoverApplyRequest,
+    CoverGenerateRequest,
     GenerateRequest,
     ImageConnectionRequest,
     ImageGenerateRequest,
@@ -125,6 +127,26 @@ def image_generate_story(req: ImageGenerateRequest) -> dict[str, Any]:
 def image_regenerate_shot(req: ImageRegenerateRequest) -> dict[str, Any]:
     try:
         return generate_one_story_image(req.story, req.shot_index, ImageConfig.from_payload(req.model_dump()), req.fixed_prompt)
+    except ImageError as exc:
+        raise image_error_response(exc) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/image/generate-cover")
+def image_generate_cover(req: CoverGenerateRequest) -> dict[str, Any]:
+    try:
+        return generate_cover_image(req.story, req.cover, req.topic, ImageConfig.from_payload(req.model_dump()), req.fixed_prompt)
+    except ImageError as exc:
+        raise image_error_response(exc) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/image/apply-cover")
+def image_apply_cover(req: CoverApplyRequest) -> dict[str, Any]:
+    try:
+        return apply_cover_from_source(req.story, req.cover, req.topic, req.size)
     except ImageError as exc:
         raise image_error_response(exc) from exc
     except Exception as exc:

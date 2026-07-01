@@ -448,15 +448,18 @@ def render_intro_template(
     size: tuple[int, int] | None = None,
 ) -> None:
     size = size or (DEFAULT_W, DEFAULT_H)
+    effect_paths = list(image_paths[:FAST_CUT_MAX_IMAGES])
+    if len(effect_paths) > 1:
+        effect_paths.reverse()
     if template == FAST_CUT_TEMPLATE:
-        _fast_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, size)
+        _fast_cut_clip(effect_paths, out_path, duration, image_seconds, size)
     elif template == EXPAND_CUT_TEMPLATE:
-        _expand_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, size)
+        _expand_cut_clip(effect_paths, out_path, duration, image_seconds, size)
     elif template == FLASH_HORIZONTAL_TEMPLATE:
-        _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, "horizontal", size)
+        _feather_flash_clip(effect_paths, out_path, duration, image_seconds, "horizontal", size)
     elif template == FLASH_VERTICAL_TEMPLATE:
-        _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, "vertical", size)
+        _feather_flash_clip(effect_paths, out_path, duration, image_seconds, "vertical", size)
     elif template == STAGGERED_MASK_TEMPLATE:
-        _staggered_mask_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, size)
+        _staggered_mask_clip(effect_paths, out_path, duration, image_seconds, size)
     else:
         render_still_clip(image_paths[0], out_path, duration, size)

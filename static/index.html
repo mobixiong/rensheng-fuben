@@ -268,9 +268,10 @@
                 <strong>图片提示词</strong>
                 <div class="panel-actions">
                   <select id="imageStylePreset" aria-label="图片风格">
-                    <option>写实风格</option>
-                    <option>短视频插画</option>
-                    <option>电影感</option>
+                    <option value="short_video">短视频插画</option>
+                    <option value="realistic">写实风格</option>
+                    <option value="cinematic">电影感</option>
+                    <option value="anime">二次元风格</option>
                   </select>
                   <button id="resetImagePrompt" class="text-action" type="button">恢复默认</button>
                 </div>
@@ -373,6 +374,31 @@
               </div>
               <div class="render-progress-track" aria-hidden="true">
                 <div id="renderProgressBar" class="render-progress-bar" style="width: 0%"></div>
+              </div>
+            </section>
+
+            <section class="cover-panel">
+              <div class="cover-preview" id="coverPreview">
+                <span>未选择封面</span>
+              </div>
+              <div class="cover-editor">
+                <div class="flow-section-head">
+                  <div>
+                    <strong>视频封面</strong>
+                    <p>标题使用当前视频主题，图片可在分镜工作台选择或重新生成</p>
+                  </div>
+                  <div class="panel-actions">
+                    <span id="coverStatus" class="state-badge pending">未生成</span>
+                    <button id="generateCover" class="secondary-pill" type="button">生成封面</button>
+                  </div>
+                </div>
+                <label class="field">
+                  <span>封面图片提示词</span>
+                  <textarea id="coverPrompt" class="prompt-textarea cover-prompt-textarea" spellcheck="false" placeholder="选择分镜后会自动带入该分镜图片提示词，也可以在这里单独修改封面提示词"></textarea>
+                </label>
+                <div class="panel-foot">
+                  <span id="coverMeta">0 字</span>
+                </div>
               </div>
             </section>
 

@@ -17,6 +17,56 @@ import {
 } from "./constants.js";
 
 const SECRET_SETTINGS_KEY = `${SETTINGS_KEY}-session-secrets`;
+const IMAGE_STYLE_PRESET_KEYS = ["short_video", "realistic", "cinematic", "anime"];
+const IMAGE_STYLE_COMMON_RULES = [
+  "景别以中景、全景为主，禁止连续使用人物大特写。",
+  "人物出现时不要占满画面，角色与背景环境比例均衡，背景场景清晰可见。",
+  "连续分镜中穿插纯场景空镜，允许用环境物件、道具和场景氛围推进叙事。",
+  "整体画面必须符合当前镜头图片提示词的描述意境，场景构图服务于叙事内容。",
+  "不要出现可读文字、字幕、界面、Logo、水印、二维码、品牌名或招牌文字。",
+  "不要添加当前镜头图片提示词里没有的额外剧情元素。",
+];
+const IMAGE_STYLE_PRESET_DEFINITIONS = {
+  realistic: {
+    visual:
+      "真实影视剧质感，自然光影，现实生活场景，人物比例真实，服装、道具、环境符合当代中国语境。画面有纪实剧情片氛围，情绪清晰但不过度表演，光影真实克制，有明确阴影和环境细节，不要过度奇幻化。",
+    subject:
+      "真实人物或真实主体物，五官、身体、服饰和动作符合现实逻辑。人物可有疲惫、紧张、震惊、压抑等情绪，但表演要克制自然，不要卡通化、表情包化或过度夸张。",
+  },
+  cinematic: {
+    visual:
+      "电影剧照质感，戏剧性光影，强烈但克制的视觉重点，画面有前景、中景、背景层次。可使用高对比阴影、实际光源、景深、低饱和或统一色彩倾向，整体像悬疑剧情片或社会现实电影分镜。",
+    subject:
+      "人物或主体物要融入电影场景，不要做成孤立头像或证件照式构图。人物姿态、表情和道具共同传达情绪，主体与空间关系清楚，有叙事张力。",
+  },
+  anime: {
+    visual:
+      "高质量 2D 二次元动画插画风，干净线稿，精致赛璐璐上色，背景细节丰富，光影有氛围，色彩完成度高。画面是动画分镜式构图，场景信息清楚，情绪节点明确，避免连续大头特写。",
+    subject:
+      "二次元动画角色或动画化主体物，人物表情有情绪但不过度夸张。角色服装和动作符合镜头语境，人物占画面比例适中，保留足够环境信息，不要做成单人头像海报。",
+  },
+};
+
+function buildImageStylePrompt({ visual, subject }) {
+  return [
+    "视频视觉风格锚定词：",
+    visual,
+    "",
+    "人物或主体物风格锚定词：",
+    subject,
+    "",
+    "构图与叙事规则：",
+    IMAGE_STYLE_COMMON_RULES.join("\n"),
+  ].join("\n");
+}
+const LEGACY_ENGLISH_IMAGE_PROMPT_MARKERS = [
+  "SCENE CONSTRUCTION",
+  "Create one vertical",
+  "Visual style:",
+  "Composition rules:",
+  "Show exactly one clear action",
+  "Match the provided voiceover",
+];
 
 export function createSettings({ els }) {
   let defaultCopyPrompt = "";
@@ -27,6 +77,33 @@ export function createSettings({ els }) {
 
   function copyPromptPreset() {
     return COPY_PROMPT_PRESETS.includes(els.copyPromptPreset?.value) ? els.copyPromptPreset.value : DEFAULT_COPY_PROMPT_PRESET;
+  }
+
+  function imageStylePreset() {
+    return IMAGE_STYLE_PRESET_KEYS.includes(els.imageStylePreset?.value) ? els.imageStylePreset.value : "short_video";
+  }
+
+  function imageStylePrompt(preset = imageStylePreset()) {
+    if (preset === "short_video") return defaultImagePrompt;
+    const definition = IMAGE_STYLE_PRESET_DEFINITIONS[preset];
+    return definition ? buildImageStylePrompt(definition) : defaultImagePrompt;
+  }
+
+  function isLegacyEnglishImagePrompt(value) {
+    const text = String(value || "");
+    return LEGACY_ENGLISH_IMAGE_PROMPT_MARKERS.some((marker) => text.includes(marker));
+  }
+
+  function syncImageStylePresetPrompt(updatePromptMeta, options = {}) {
+    const preset = imageStylePreset();
+    if (!els.imagePrompt) return false;
+    const current = els.imagePrompt.value || "";
+    if (current.trim() && !isLegacyEnglishImagePrompt(current) && !options.force) return false;
+    const prompt = imageStylePrompt(preset);
+    if (!prompt) return false;
+    els.imagePrompt.value = prompt;
+    if (updatePromptMeta) updatePromptMeta();
+    return true;
   }
 
   function readJson(storage, key) {
@@ -118,6 +195,7 @@ export function createSettings({ els }) {
       copyPromptVersion: COPY_PROMPT_VERSION,
       copyToStoryPrompt: els.copyToStoryPrompt?.value || "",
       copyToStoryPromptVersion: COPY_TO_STORY_PROMPT_VERSION,
+      imageStylePreset: imageStylePreset(),
       imagePrompt: els.imagePrompt.value,
       improveImagePrompt: els.improveImagePrompt?.value || "",
       improveImagePromptVersion: IMPROVE_IMAGE_PROMPT_VERSION,
@@ -187,11 +265,15 @@ export function createSettings({ els }) {
       if (els.copyPromptPreset) {
         els.copyPromptPreset.value = COPY_PROMPT_PRESETS.includes(s.copyPromptPreset) ? s.copyPromptPreset : DEFAULT_COPY_PROMPT_PRESET;
       }
+      if (els.imageStylePreset) {
+        els.imageStylePreset.value = IMAGE_STYLE_PRESET_KEYS.includes(s.imageStylePreset) ? s.imageStylePreset : "short_video";
+      }
       if (s.copyPrompt && s.copyPromptVersion === COPY_PROMPT_VERSION) els.copyPrompt.value = s.copyPrompt;
       if (els.copyToStoryPrompt && s.copyToStoryPrompt && s.copyToStoryPromptVersion === COPY_TO_STORY_PROMPT_VERSION) {
         els.copyToStoryPrompt.value = s.copyToStoryPrompt;
       }
       if (s.imagePrompt) els.imagePrompt.value = s.imagePrompt;
+      syncImageStylePresetPrompt();
       if (els.improveImagePrompt && s.improveImagePrompt && s.improveImagePromptVersion === IMPROVE_IMAGE_PROMPT_VERSION) {
         els.improveImagePrompt.value = s.improveImagePrompt;
       }
@@ -221,7 +303,8 @@ export function createSettings({ els }) {
       els.copyToStoryPrompt.value = defaultCopyToStoryPrompt;
       persist();
     }
-    if (!els.imagePrompt.value.trim()) els.imagePrompt.value = defaultImagePrompt;
+    if (!els.imagePrompt.value.trim()) els.imagePrompt.value = imageStylePrompt();
+    syncImageStylePresetPrompt(updatePromptMeta);
     if (els.improveImagePrompt && !els.improveImagePrompt.value.trim()) {
       els.improveImagePrompt.value = defaultImproveImagePrompt;
       persist();
@@ -254,7 +337,15 @@ export function createSettings({ els }) {
   }
 
   function resetImagePrompt(updatePromptMeta, scheduleSave) {
+    if (els.imageStylePreset) els.imageStylePreset.value = "short_video";
     els.imagePrompt.value = defaultImagePrompt;
+    persist();
+    updatePromptMeta();
+    scheduleSave();
+  }
+
+  function applyImageStylePreset(updatePromptMeta, scheduleSave) {
+    syncImageStylePresetPrompt(updatePromptMeta, { force: true });
     persist();
     updatePromptMeta();
     scheduleSave();
@@ -382,6 +473,8 @@ export function createSettings({ els }) {
     applyCopyPromptPreset,
     resetCopyToStoryPrompt,
     resetImagePrompt,
+    applyImageStylePreset,
+    syncImageStylePresetPrompt,
     resetImproveImagePrompt,
     textPayload,
     storyPayload,

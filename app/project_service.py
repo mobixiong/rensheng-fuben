@@ -64,13 +64,24 @@ def _project_image_for_index(image_dir: Path, index: int) -> Path | None:
 
 
 def _clear_image_runtime_fields(shot: dict[str, Any]) -> None:
+    shot.pop("_image_job", None)
     shot.pop("_image_attempt", None)
     shot.pop("_image_status_started_at", None)
     shot.pop("_image_status_updated_at", None)
 
 
+def _image_job_status(shot: dict[str, Any]) -> str:
+    job = shot.get("_image_job")
+    if isinstance(job, dict) and job.get("status") in TRANSIENT_IMAGE_STATUSES:
+        return str(job.get("status"))
+    if shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES:
+        return str(shot.get("_image_status"))
+    return ""
+
+
 def _status_started_at_seconds(shot: dict[str, Any]) -> float:
-    raw = shot.get("_image_status_started_at") or shot.get("_image_status_updated_at") or 0
+    job = shot.get("_image_job") if isinstance(shot.get("_image_job"), dict) else {}
+    raw = job.get("started_at") or job.get("updated_at") or shot.get("_image_status_started_at") or shot.get("_image_status_updated_at") or 0
     try:
         value = float(raw)
     except (TypeError, ValueError):
@@ -79,8 +90,30 @@ def _status_started_at_seconds(shot: dict[str, Any]) -> float:
 
 
 def _transient_status_is_fresh(shot: dict[str, Any]) -> bool:
+    if not _image_job_status(shot):
+        return False
     started_at = _status_started_at_seconds(shot)
     return bool(started_at and time.time() - started_at <= TRANSIENT_IMAGE_STATUS_TTL_SECONDS)
+
+
+def _migrate_image_job(shot: dict[str, Any], has_image: bool = False) -> None:
+    status = _image_job_status(shot)
+    if not status:
+        return
+    job = shot.get("_image_job")
+    if not isinstance(job, dict):
+        now = time.time()
+        started_at = _status_started_at_seconds(shot) or now
+        shot["_image_job"] = {
+            "status": status,
+            "attempt": shot.get("_image_attempt") or 1,
+            "started_at": int(started_at * 1000),
+            "updated_at": int(now * 1000),
+        }
+    shot["_image_status"] = "done" if has_image else "pending"
+    shot.pop("_image_attempt", None)
+    shot.pop("_image_status_started_at", None)
+    shot.pop("_image_status_updated_at", None)
 
 
 def _image_is_newer_than_status(image_path: Path, shot: dict[str, Any]) -> bool:
@@ -97,16 +130,27 @@ def _mark_shot_image_done(shot: dict[str, Any], project_id: str, image_path: Pat
     shot["image_path"] = str(image_path.resolve())
     shot["image_url"] = f"/workspace/projects/{project_id}/images/{image_path.name}"
     if (
-        shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES
+        _image_job_status(shot)
         and _transient_status_is_fresh(shot)
         and not _image_is_newer_than_status(image_path, shot)
     ):
+        _migrate_image_job(shot, has_image=True)
+        shot.pop("_image_error", None)
+        shot.pop("_image_error_category", None)
+        shot.pop("_image_error_code", None)
         return
     shot["_image_status"] = "done"
     _clear_image_runtime_fields(shot)
     shot.pop("_image_error", None)
     shot.pop("_image_error_category", None)
     shot.pop("_image_error_code", None)
+
+
+def _mark_cover_image_done(cover: dict[str, Any], project_id: str, image_path: Path) -> None:
+    cover["image_path"] = str(image_path.resolve())
+    cover["image_url"] = f"/workspace/projects/{project_id}/cover/{image_path.name}"
+    cover["_cover_status"] = "done"
+    cover.pop("_cover_error", None)
 
 
 def _has_prompt_policy_error(value: Any) -> bool:
@@ -140,6 +184,8 @@ def _mark_prompt_policy_errors(state: dict[str, Any]) -> None:
         if not isinstance(shot, dict):
             continue
         if shot.get("image_path") or shot.get("image_url"):
+            continue
+        if shot.get("_image_error"):
             continue
         if shot.get("_image_status") not in {None, "", "pending", "error", "policy_error"}:
             continue
@@ -215,8 +261,13 @@ def _copy_project_images(state: dict[str, Any], target_project_dir: Path) -> Non
             target = _project_image_for_index(image_dir, index)
         if target and target.exists():
             _mark_shot_image_done(shot, state["project_id"], target)
-        elif shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES:
+        elif _image_job_status(shot):
+            if shot.get("_image_error"):
+                shot["_image_status"] = "error"
+                _clear_image_runtime_fields(shot)
+                continue
             if _transient_status_is_fresh(shot):
+                _migrate_image_job(shot, has_image=False)
                 continue
             shot["_image_status"] = "pending"
             _clear_image_runtime_fields(shot)
@@ -224,6 +275,48 @@ def _copy_project_images(state: dict[str, Any], target_project_dir: Path) -> Non
             shot.pop("_image_error_category", None)
             shot.pop("_image_error_code", None)
     _mark_prompt_policy_errors(state)
+
+
+def _copy_project_cover(state: dict[str, Any], target_project_dir: Path) -> None:
+    story = state.get("story")
+    if not isinstance(story, dict):
+        return
+    cover = story.get("cover")
+    if not isinstance(cover, dict):
+        return
+
+    cover_dir = target_project_dir / "cover"
+    cover_dir.mkdir(parents=True, exist_ok=True)
+    source = None
+    raw_path = str(cover.get("image_path") or "").strip()
+    if raw_path:
+        source = Path(raw_path)
+    if (not source or not source.exists()) and cover.get("image_url"):
+        source = _workspace_path_from_url(str(cover.get("image_url")))
+    if source and source.exists():
+        target = cover_dir / f"cover{source.suffix or '.png'}"
+        if source.resolve() != target.resolve():
+            shutil.copy2(source, target)
+        _mark_cover_image_done(cover, state["project_id"], target)
+    else:
+        for suffix in (".png", ".jpg", ".jpeg", ".webp"):
+            target = cover_dir / f"cover{suffix}"
+            if target.exists():
+                _mark_cover_image_done(cover, state["project_id"], target)
+                break
+
+    raw_source = None
+    raw_cover_path = str(cover.get("raw_image_path") or "").strip()
+    if raw_cover_path:
+        raw_source = Path(raw_cover_path)
+    if (not raw_source or not raw_source.exists()) and cover.get("raw_image_url"):
+        raw_source = _workspace_path_from_url(str(cover.get("raw_image_url")))
+    if raw_source and raw_source.exists():
+        raw_target = cover_dir / f"cover_raw{raw_source.suffix or '.png'}"
+        if raw_source.resolve() != raw_target.resolve():
+            shutil.copy2(raw_source, raw_target)
+        cover["raw_image_path"] = str(raw_target.resolve())
+        cover["raw_image_url"] = f"/workspace/projects/{state['project_id']}/cover/{raw_target.name}"
 
 
 def hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, Any]:
@@ -240,8 +333,13 @@ def hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, 
         image_path = _project_image_for_index(image_dir, index) if image_dir.exists() else None
         if image_path and image_path.exists():
             _mark_shot_image_done(shot, project_id, image_path)
-        elif shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES:
+        elif _image_job_status(shot):
+            if shot.get("_image_error"):
+                shot["_image_status"] = "error"
+                _clear_image_runtime_fields(shot)
+                continue
             if _transient_status_is_fresh(shot):
+                _migrate_image_job(shot, has_image=False)
                 continue
             shot["_image_status"] = "pending"
             _clear_image_runtime_fields(shot)
@@ -249,6 +347,14 @@ def hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, 
             shot.pop("_image_error_category", None)
             shot.pop("_image_error_code", None)
     _mark_prompt_policy_errors(state)
+    cover = story.get("cover")
+    if isinstance(cover, dict):
+        cover_dir = project_dir(project_id) / "cover"
+        for suffix in (".png", ".jpg", ".jpeg", ".webp"):
+            cover_path = cover_dir / f"cover{suffix}"
+            if cover_path.exists():
+                _mark_cover_image_done(cover, project_id, cover_path)
+                break
     return state
 
 
@@ -267,6 +373,7 @@ def write_project_files(state: dict[str, Any]) -> dict[str, Any]:
     }
     _preserve_existing_image_errors(payload, target_project_dir)
     _copy_project_images(payload, target_project_dir)
+    _copy_project_cover(payload, target_project_dir)
     story = payload.get("story")
 
     (target_project_dir / "state.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

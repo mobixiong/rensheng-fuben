@@ -9,10 +9,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from PIL import Image, ImageDraw, ImageFont
+
 from .paths import ROOT, WORKSPACE
 
 
 IMAGE_PROMPT_PATH = ROOT / "prompts" / "image_style.md"
+FONT_CANDIDATES = [
+    Path("C:/Windows/Fonts/msyhbd.ttc"),
+    Path("C:/Windows/Fonts/Noto Sans SC Bold (TrueType).otf"),
+    Path("C:/Windows/Fonts/simhei.ttf"),
+    Path("C:/Windows/Fonts/msyh.ttc"),
+]
 
 
 class ImageError(RuntimeError):
@@ -46,6 +54,7 @@ class ImageError(RuntimeError):
 
 
 PROMPT_POLICY_SUGGESTION = "请修改该镜头的口播、画面描述或图片提示词，降低暴力、血腥、敏感等表达后重试。"
+IMAGE_QUOTA_SUGGESTION = "图片接口额度不足或触发限流，请更换可用 Key、降低并发，或等待额度恢复后重试。"
 
 
 def _extract_provider_error(raw: str) -> tuple[str, str, str]:
@@ -88,6 +97,15 @@ def _is_prompt_policy_error(message: str, code: str = "", error_type: str = "") 
 
 def classify_image_http_error(status_code: int, raw_detail: str) -> ImageError:
     message, code, error_type = _extract_provider_error(raw_detail)
+    quota_text = " ".join([message or "", code or "", error_type or ""]).lower()
+    if status_code == 429 or "quota" in quota_text or "rate limit" in quota_text or "too many requests" in quota_text:
+        return ImageError(
+            f"图片接口额度不足或限流：{message or raw_detail}",
+            code=code or f"http_{status_code}",
+            category="quota",
+            status_code=status_code,
+            suggestion=IMAGE_QUOTA_SUGGESTION,
+        )
     if _is_prompt_policy_error(message, code, error_type):
         return ImageError(
             f"提示词被内容安全策略拦截：{message}",
@@ -166,6 +184,146 @@ def build_shot_image_prompt(
     return "\n\n".join(parts)
 
 
+def _image_canvas_size(size: str) -> tuple[int, int]:
+    value = str(size or "").strip()
+    if value in {"16:9", "16 / 9"}:
+        return (1920, 1080)
+    if value in {"1:1", "1 / 1"}:
+        return (1440, 1440)
+    return (1080, 1920)
+
+
+def _font_path() -> str | None:
+    for path in FONT_CANDIDATES:
+        if path.exists():
+            return str(path)
+    return None
+
+
+def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    path = _font_path()
+    if path:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
+
+
+def _text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, stroke_width: int = 0) -> int:
+    box = draw.textbbox((0, 0), text, font=font, stroke_width=stroke_width)
+    return box[2] - box[0]
+
+
+def _wrap_title(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
+    raw = str(text or "").strip()
+    if not raw:
+        return []
+    lines: list[str] = []
+    current = ""
+    for char in raw:
+        test = f"{current}{char}"
+        if current and _text_width(draw, test, font, 5) > max_width:
+            lines.append(current)
+            current = char
+        else:
+            current = test
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _fit_image_to_canvas(image: Image.Image, size: tuple[int, int]) -> Image.Image:
+    width, height = size
+    source = image.convert("RGB")
+    scale = max(width / source.width, height / source.height)
+    resized = source.resize(
+        (max(1, int(source.width * scale)), max(1, int(source.height * scale))),
+        Image.Resampling.LANCZOS,
+    )
+    left = max(0, (resized.width - width) // 2)
+    top = max(0, (resized.height - height) // 2)
+    return resized.crop((left, top, left + width, top + height))
+
+
+def _overlay_cover_title(raw_path: Path, out_path: Path, title: str, size: str) -> None:
+    canvas_size = _image_canvas_size(size)
+    img = _fit_image_to_canvas(Image.open(raw_path), canvas_size).convert("RGBA")
+    width, height = img.size
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    gradient_height = max(int(height * 0.38), 360)
+    for y in range(gradient_height):
+        alpha = int(190 * (y / max(gradient_height - 1, 1)) ** 1.25)
+        draw.line((0, height - gradient_height + y, width, height - gradient_height + y), fill=(0, 0, 0, alpha))
+
+    clean_title = str(title or "").strip()
+    if clean_title:
+        max_width = int(width * 0.84)
+        font_size = max(54, min(122, int(width * 0.082)))
+        title_font = _font(font_size)
+        lines = _wrap_title(draw, clean_title, title_font, max_width)[:3]
+        while len(lines) > 2 and font_size > 52:
+            font_size -= 6
+            title_font = _font(font_size)
+            lines = _wrap_title(draw, clean_title, title_font, max_width)[:3]
+        line_height = int(font_size * 1.22)
+        block_height = line_height * len(lines)
+        y = height - int(height * 0.12) - block_height
+        stroke = max(3, int(font_size * 0.07))
+        for line in lines:
+            line_width = _text_width(draw, line, title_font, stroke)
+            x = (width - line_width) // 2
+            draw.text(
+                (x, y),
+                line,
+                font=title_font,
+                fill=(255, 255, 255, 255),
+                stroke_fill=(10, 10, 10, 220),
+                stroke_width=stroke,
+            )
+            y += line_height
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.alpha_composite(img, overlay).convert("RGB").save(out_path, quality=95)
+
+
+def _shot_for_cover(story: dict[str, Any], cover: dict[str, Any]) -> dict[str, Any]:
+    shots = story.get("shots") if isinstance(story.get("shots"), list) else []
+    try:
+        index = int(cover.get("source_shot_index"))
+    except (TypeError, ValueError):
+        index = -1
+    if 0 <= index < len(shots) and isinstance(shots[index], dict):
+        return shots[index]
+    return {}
+
+
+def build_cover_image_prompt(
+    story: dict[str, Any],
+    cover: dict[str, Any] | None,
+    topic: str,
+    fixed_prompt: str | None = None,
+    size: str = "9:16",
+) -> str:
+    cover = cover or {}
+    base = fixed_prompt or load_image_prompt()
+    shot = _shot_for_cover(story, cover)
+    cover_prompt = str(cover.get("image_prompt") or "").strip()
+    if not cover_prompt:
+        cover_prompt = str(shot.get("image_prompt") or shot.get("visual") or shot.get("voiceover") or story.get("title") or topic).strip()
+    ratio_label = _image_ratio_label(size or cover.get("image_size") or story.get("image_size") or "9:16")
+    parts = [
+        base,
+        f"视频主题：{topic or story.get('title') or ''}",
+        "封面图片提示词：",
+        cover_prompt,
+        f"请生成一张{ratio_label}视频封面底图。主体清晰、情绪强、适合叠加标题，画面中不要出现可读文字、Logo、水印或二维码。",
+    ]
+    return "\n\n".join(parts)
+
+
 def _workspace_project_id(value: Any) -> str:
     raw = str(value or "").strip().replace("\\", "/").strip("/")
     if not raw or raw == "images":
@@ -174,6 +332,18 @@ def _workspace_project_id(value: Any) -> str:
     if any(part in {".", ".."} or ":" in part for part in parts):
         return ""
     return "/".join(parts)
+
+
+def _workspace_path_from_url(url: str) -> Path | None:
+    prefix = "/workspace/"
+    if not isinstance(url, str) or not url.startswith(prefix):
+        return None
+    candidate = (WORKSPACE / url[len(prefix):]).resolve()
+    try:
+        candidate.relative_to(WORKSPACE.resolve())
+    except ValueError:
+        return None
+    return candidate
 
 
 def _endpoint(base_url: str) -> str:
@@ -288,6 +458,89 @@ def generate_one_story_image(story: dict[str, Any], shot_index: int, cfg: ImageC
     shot["image_path"] = str(out_path.resolve())
     shot["image_url"] = f"/workspace/{project_id}/images/shot_{shot_index + 1:02d}.png"
     shot["resolved_image_prompt"] = prompt
+    return updated
+
+
+def generate_cover_image(
+    story: dict[str, Any],
+    cover: dict[str, Any] | None,
+    topic: str,
+    cfg: ImageConfig,
+    fixed_prompt: str | None = None,
+) -> dict[str, Any]:
+    project_id = _workspace_project_id(story.get("project_id"))
+    if not project_id:
+        project_id = time.strftime("img_%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
+    cover_dir = WORKSPACE / project_id / "cover"
+    raw_path = cover_dir / "cover_raw.png"
+    out_path = cover_dir / "cover.png"
+    updated = json.loads(json.dumps(story, ensure_ascii=False))
+    updated["project_id"] = project_id
+    updated["image_size"] = cfg.size
+
+    prompt = build_cover_image_prompt(updated, cover, topic, fixed_prompt, cfg.size)
+    generate_image(prompt, cfg, raw_path)
+    _overlay_cover_title(raw_path, out_path, topic or str(updated.get("title") or ""), cfg.size)
+
+    next_cover = {
+        **(cover or {}),
+        "title": topic or str(updated.get("title") or ""),
+        "image_size": cfg.size,
+        "image_path": str(out_path.resolve()),
+        "image_url": f"/workspace/{project_id}/cover/cover.png",
+        "raw_image_path": str(raw_path.resolve()),
+        "raw_image_url": f"/workspace/{project_id}/cover/cover_raw.png",
+        "resolved_image_prompt": prompt,
+        "_cover_status": "done",
+        "_cover_version": int(time.time() * 1000),
+    }
+    updated["cover"] = next_cover
+    return updated
+
+
+def apply_cover_from_source(
+    story: dict[str, Any],
+    cover: dict[str, Any] | None,
+    topic: str,
+    size: str = "9:16",
+) -> dict[str, Any]:
+    cover = cover or {}
+    project_id = _workspace_project_id(story.get("project_id"))
+    if not project_id:
+        project_id = time.strftime("img_%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
+
+    source = None
+    raw_path = str(cover.get("image_path") or "").strip()
+    if raw_path:
+        source = Path(raw_path)
+    if (not source or not source.exists()) and cover.get("image_url"):
+        source = _workspace_path_from_url(str(cover.get("image_url")))
+    if (not source or not source.exists()):
+        shot = _shot_for_cover(story, cover)
+        raw_path = str(shot.get("image_path") or "").strip()
+        if raw_path:
+            source = Path(raw_path)
+        if (not source or not source.exists()) and shot.get("image_url"):
+            source = _workspace_path_from_url(str(shot.get("image_url")))
+    if not source or not source.exists():
+        raise ImageError("Cover source image not found", category="request")
+
+    cover_dir = WORKSPACE / project_id / "cover"
+    out_path = cover_dir / "cover.png"
+    updated = json.loads(json.dumps(story, ensure_ascii=False))
+    updated["project_id"] = project_id
+    updated["image_size"] = size
+    _overlay_cover_title(source, out_path, topic or str(updated.get("title") or ""), size)
+    next_cover = {
+        **cover,
+        "title": topic or str(updated.get("title") or ""),
+        "image_size": size,
+        "image_path": str(out_path.resolve()),
+        "image_url": f"/workspace/{project_id}/cover/cover.png",
+        "_cover_status": "done",
+        "_cover_version": int(time.time() * 1000),
+    }
+    updated["cover"] = next_cover
     return updated
 
 

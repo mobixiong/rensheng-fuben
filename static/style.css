@@ -1019,6 +1019,10 @@ textarea {
   box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
+.shot-card.cover-selected {
+  border-color: rgba(52, 168, 83, 0.6);
+}
+
 .shot-thumb {
   position: relative;
   width: 100%;
@@ -1035,6 +1039,22 @@ textarea {
   top: 10px;
   left: 10px;
   z-index: 1;
+}
+
+.cover-badge {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgba(52, 168, 83, 0.92);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .shot-thumb:focus-visible {
@@ -1120,6 +1140,10 @@ textarea {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
+}
+
+.shot-cover-button {
+  margin: -2px 0 10px;
 }
 
 .shot-title-row strong {
@@ -1340,6 +1364,58 @@ textarea {
   align-items: start;
   gap: 16px;
   padding: 16px;
+}
+
+.cover-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.cover-preview {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.cover-preview img {
+  width: 100%;
+  height: 100%;
+  max-height: 360px;
+  object-fit: contain;
+}
+
+.cover-editor {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.cover-editor .flow-section-head {
+  margin-bottom: 0;
+}
+
+.cover-editor .flow-section-head p {
+  margin: 4px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cover-prompt-textarea {
+  min-height: 132px;
+  resize: vertical;
 }
 
 .video-control-panel {
@@ -1757,6 +1833,7 @@ pre {
   }
 
   .video-output-panel,
+  .cover-panel,
   .video-control-panel,
   .project-create-panel,
   .theme-editor-grid,

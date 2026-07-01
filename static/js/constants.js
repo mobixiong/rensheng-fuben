@@ -30,16 +30,13 @@ export const DEFAULT_INTRO_TEMPLATE = "life_copy_fast_cut";
 
 export const IMAGE_STATUS = {
   pending: "pending",
-  generating: "generating",
-  redrawing: "redrawing",
-  retrying: "retrying",
   done: "done",
   error: "error",
   policyError: "policy_error",
 };
 
-export const IMAGE_TRANSIENT_STATUSES = [
-  IMAGE_STATUS.generating,
-  IMAGE_STATUS.redrawing,
-  IMAGE_STATUS.retrying,
-];
+export const IMAGE_JOB_STATUS = {
+  generating: "generating",
+  redrawing: "redrawing",
+  retrying: "retrying",
+};

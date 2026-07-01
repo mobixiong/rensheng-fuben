@@ -173,6 +173,7 @@ function setActiveTab(tab) {
   state.activeTab = tab;
   ui.setTab(tab);
   if (tab === "image") storyView.renderShotGrid();
+  if (tab === "video") storyView.renderCoverPanel();
 }
 
 function syncThemeMirrors() {
@@ -187,7 +188,6 @@ const storyView = createStoryView({
   getSelectedShots: () => state.selectedShots,
   setSelectedShots,
   getActiveTab: () => state.activeTab,
-  getImageGenerationActive: () => state.imageGenerationActive,
   getActiveImageStatus: (index) => state.activeImageJobs?.get(Number(index))?.status || "",
   onStoryChanged: () => projectStore?.scheduleSave(),
 });
@@ -234,6 +234,12 @@ function bindEvents() {
       return;
     }
 
+    const setCoverButton = event.target.closest("[data-set-cover-shot]");
+    if (setCoverButton) {
+      workflow.setShotAsCover(Number(setCoverButton.dataset.setCoverShot));
+      return;
+    }
+
     const selectButton = event.target.closest("[data-select-shot]");
     if (selectButton) {
       clearTimeout(shotClickTimer);
@@ -274,6 +280,7 @@ function bindEvents() {
   $("refreshGallery").addEventListener("click", storyView.renderShotGrid);
   $("validate").addEventListener("click", () => storyView.validate(els.result, ui.setStatus));
   $("render").addEventListener("click", workflow.renderVideo);
+  $("generateCover")?.addEventListener("click", workflow.generateCoverImage);
   $("previewIntroTemplates")?.addEventListener("click", workflow.previewIntroTemplates);
   $("uploadBgm")?.addEventListener("click", workflow.uploadBgm);
   $("uploadIntroSfx")?.addEventListener("click", workflow.uploadIntroSfx);
@@ -319,6 +326,9 @@ function bindEvents() {
   $("resetImagePrompt").addEventListener("click", () => {
     settings.resetImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
+  els.imageStylePreset?.addEventListener("change", () => {
+    settings.applyImageStylePreset(storyView.updatePromptMeta, projectStore.scheduleSave);
+  });
   $("resetImproveImagePrompt")?.addEventListener("click", () => {
     settings.resetImproveImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
@@ -351,6 +361,10 @@ function bindEvents() {
   els.improveImagePrompt?.addEventListener("input", () => {
     settings.persist();
     storyView.updatePromptMeta();
+    projectStore.scheduleSave();
+  });
+  els.coverPrompt?.addEventListener("input", () => {
+    storyView.updateCoverImagePrompt(els.coverPrompt.value, { clearError: true });
     projectStore.scheduleSave();
   });
   els.themeBrief?.addEventListener("input", () => {

@@ -56,6 +56,18 @@ class ImageRegenerateRequest(ImageGenerateRequest):
     shot_index: int = Field(ge=0)
 
 
+class CoverGenerateRequest(ImageGenerateRequest):
+    topic: str = ""
+    cover: dict[str, Any] | None = None
+
+
+class CoverApplyRequest(BaseModel):
+    story: dict[str, Any]
+    cover: dict[str, Any] | None = None
+    topic: str = ""
+    size: str = "9:16"
+
+
 class ImageConnectionRequest(BaseModel):
     provider: str = "openai"
     base_url: str = ""
