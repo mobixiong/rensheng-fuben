@@ -69,6 +69,7 @@ def _render_job_worker(job_id: str, payload: dict[str, Any]) -> None:
             bgm_id=payload.get("bgm_id") or "none",
             intro_image_seconds=payload.get("intro_image_seconds") or 0.3,
             intro_sfx_id=payload.get("intro_sfx_id") or "default",
+            image_size=payload.get("image_size") or "9:16",
         )
         _set_render_job(job_id, status="complete", progress=1, stage="渲染完成", detail="成片已导出", result=data)
     except RenderError as exc:

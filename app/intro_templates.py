@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 
 from .ffmpeg_utils import run_command, safe_rmtree, safe_unlink
-from .render_constants import FPS, H, W
+from .render_constants import FPS, H as DEFAULT_H, W as DEFAULT_W
 
 
 FAST_CUT_TEMPLATE = "life_copy_fast_cut"
@@ -46,7 +46,8 @@ def normalize_intro_image_seconds(value: float | int | str | None) -> float:
     return max(0.08, min(3.0, seconds))
 
 
-def render_still_clip(image_path: Path, out_path: Path, duration: float) -> None:
+def render_still_clip(image_path: Path, out_path: Path, duration: float, size: tuple[int, int] | None = None) -> None:
+    W, H = size or (DEFAULT_W, DEFAULT_H)
     frames = max(1, int(duration * FPS))
     vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
@@ -61,7 +62,8 @@ def render_still_clip(image_path: Path, out_path: Path, duration: float) -> None
     ])
 
 
-def _static_intro_clip(image_path: Path, out_path: Path, duration: float) -> None:
+def _static_intro_clip(image_path: Path, out_path: Path, duration: float, size: tuple[int, int]) -> None:
+    W, H = size
     frames = max(1, int(round(duration * FPS)))
     vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=increase,"
@@ -90,7 +92,8 @@ def _concat_video(clips: list[Path], out_path: Path) -> None:
         safe_unlink(list_path)
 
 
-def _linear_mask_transition(prev_path: Path, next_path: Path, out_path: Path, duration: float) -> None:
+def _linear_mask_transition(prev_path: Path, next_path: Path, out_path: Path, duration: float, size: tuple[int, int]) -> None:
+    W, H = size
     duration = max(0.08, float(duration))
     frames = max(2, int(round(duration * FPS)))
     duration = frames / FPS
@@ -123,11 +126,12 @@ def _linear_mask_transition(prev_path: Path, next_path: Path, out_path: Path, du
     ])
 
 
-def _linear_mask_intro_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float) -> None:
+def _linear_mask_intro_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float, size: tuple[int, int]) -> None:
+    W, H = size
     image_seconds = normalize_intro_image_seconds(image_seconds)
     usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
     if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
+        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration, size)
         return
 
     segment_dir = out_path.parent / f"{out_path.stem}_linear_mask"
@@ -138,7 +142,7 @@ def _linear_mask_intro_clip(image_paths: list[Path], out_path: Path, duration: f
     try:
         first_hold = segment_dir / "hold_01.mp4"
         first_duration = min(image_seconds, duration)
-        _static_intro_clip(usable[0], first_hold, first_duration)
+        _static_intro_clip(usable[0], first_hold, first_duration, size)
         segments.append(first_hold)
         elapsed += first_duration
 
@@ -147,7 +151,7 @@ def _linear_mask_intro_clip(image_paths: list[Path], out_path: Path, duration: f
                 break
             trans_path = segment_dir / f"mask_{idx:02d}.mp4"
             transition_duration = min(image_seconds, max(0.03, duration - elapsed))
-            _linear_mask_transition(usable[idx - 1], usable[idx], trans_path, transition_duration)
+            _linear_mask_transition(usable[idx - 1], usable[idx], trans_path, transition_duration, size)
             segments.append(trans_path)
             elapsed += transition_duration
 
@@ -161,7 +165,8 @@ def _linear_mask_intro_clip(image_paths: list[Path], out_path: Path, duration: f
         safe_rmtree(segment_dir)
 
 
-def _expand_mask_segment(image_path: Path, out_path: Path, duration: float, start_frame: int, total_frames: int) -> None:
+def _expand_mask_segment(image_path: Path, out_path: Path, duration: float, start_frame: int, total_frames: int, size: tuple[int, int]) -> None:
+    W, H = size
     frames = max(1, int(round(duration * FPS)))
     duration = frames / FPS
     total_frames = max(frames, int(total_frames))
@@ -198,11 +203,12 @@ def _expand_mask_segment(image_path: Path, out_path: Path, duration: float, star
     ])
 
 
-def _expand_cut_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float) -> None:
+def _expand_cut_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float, size: tuple[int, int]) -> None:
+    W, H = size
     image_seconds = normalize_intro_image_seconds(image_seconds)
     usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
     if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
+        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration, size)
         return
 
     effect_duration = min(duration, len(usable) * image_seconds)
@@ -222,14 +228,14 @@ def _expand_cut_clip(image_paths: list[Path], out_path: Path, duration: float, i
             if segment_frames <= 0:
                 break
             segment_path = segment_dir / f"expand_{idx + 1:02d}.mp4"
-            _expand_mask_segment(image_path, segment_path, segment_frames / FPS, elapsed_frames, total_effect_frames)
+            _expand_mask_segment(image_path, segment_path, segment_frames / FPS, elapsed_frames, total_effect_frames, size)
             segments.append(segment_path)
             elapsed_frames += segment_frames
 
         remaining = max(0.0, duration - (elapsed_frames / FPS))
         if remaining > 0.08:
             hold_path = segment_dir / "hold.mp4"
-            _static_intro_clip(usable[-1], hold_path, remaining)
+            _static_intro_clip(usable[-1], hold_path, remaining, size)
             segments.append(hold_path)
 
         if len(segments) == 1:
@@ -248,14 +254,16 @@ def _feather_wipe_transition(
     out_path: Path,
     duration: float,
     direction: str,
+    size: tuple[int, int],
 ) -> None:
+    W, H = size
     duration = max(0.08, float(duration))
     frames = max(2, int(round(duration * FPS)))
     duration = frames / FPS
     feather = FLASH_CUT_MASK_FEATHER
     axis = "Y" if direction == "vertical" else "X"
-    size = H if direction == "vertical" else W
-    edge_expr = f"(-{feather}+({size + feather * 2})*N/{max(frames - 1, 1)})"
+    axis_size = H if direction == "vertical" else W
+    edge_expr = f"(-{feather}+({axis_size + feather * 2})*N/{max(frames - 1, 1)})"
     mask_expr = f"clip(255*((({edge_expr})-{axis}+{feather})/{2 * feather}),0,255)"
     image_vf = (
         f"scale={W}:{H}:force_original_aspect_ratio=increase,"
@@ -284,11 +292,12 @@ def _feather_wipe_transition(
     ])
 
 
-def _feather_flash_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float, direction: str) -> None:
+def _feather_flash_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float, direction: str, size: tuple[int, int]) -> None:
+    W, H = size
     image_seconds = normalize_intro_image_seconds(image_seconds)
     usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
     if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
+        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration, size)
         return
 
     effect_duration = min(duration, len(usable) * image_seconds)
@@ -300,7 +309,7 @@ def _feather_flash_clip(image_paths: list[Path], out_path: Path, duration: float
     try:
         first_path = segment_dir / "flash_01.mp4"
         first_duration = min(image_seconds, effect_duration)
-        _static_intro_clip(usable[0], first_path, first_duration)
+        _static_intro_clip(usable[0], first_path, first_duration, size)
         segments.append(first_path)
         elapsed += first_duration
 
@@ -309,14 +318,14 @@ def _feather_flash_clip(image_paths: list[Path], out_path: Path, duration: float
                 break
             segment_path = segment_dir / f"flash_{idx + 1:02d}.mp4"
             segment_duration = min(image_seconds, max(0.03, effect_duration - elapsed))
-            _feather_wipe_transition(usable[idx - 1], usable[idx], segment_path, segment_duration, direction)
+            _feather_wipe_transition(usable[idx - 1], usable[idx], segment_path, segment_duration, direction, size)
             segments.append(segment_path)
             elapsed += segment_duration
 
         remaining = max(0.0, duration - elapsed)
         if remaining > 0.08:
             hold_path = segment_dir / "hold.mp4"
-            _static_intro_clip(usable[-1], hold_path, remaining)
+            _static_intro_clip(usable[-1], hold_path, remaining, size)
             segments.append(hold_path)
 
         if len(segments) == 1:
@@ -329,11 +338,12 @@ def _feather_flash_clip(image_paths: list[Path], out_path: Path, duration: float
         safe_rmtree(segment_dir)
 
 
-def _staggered_mask_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float) -> None:
+def _staggered_mask_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float, size: tuple[int, int]) -> None:
+    W, H = size
     image_seconds = normalize_intro_image_seconds(image_seconds)
     usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
     if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
+        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration, size)
         return
 
     sweep_seconds = max(image_seconds * STAGGERED_SWEEP_MULTIPLIER, 0.16)
@@ -390,18 +400,19 @@ def _staggered_mask_clip(image_paths: list[Path], out_path: Path, duration: floa
             "-pix_fmt", "yuv420p", str(relay_path),
         ])
         if hold_path:
-            _static_intro_clip(usable[-1], hold_path, duration - effect_duration)
+            _static_intro_clip(usable[-1], hold_path, duration - effect_duration, size)
             _concat_video([relay_path, hold_path], out_path)
     finally:
         if hold_path:
             safe_rmtree(hold_path.parent)
 
 
-def _fast_cut_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float) -> None:
+def _fast_cut_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float, size: tuple[int, int]) -> None:
+    W, H = size
     image_seconds = normalize_intro_image_seconds(image_seconds)
     usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
     if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
+        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration, size)
         return
 
     effect_duration = min(duration, len(usable) * image_seconds)
@@ -414,9 +425,9 @@ def _fast_cut_clip(image_paths: list[Path], out_path: Path, duration: float, ima
     segments = [mask_path]
 
     try:
-        _linear_mask_intro_clip(usable, mask_path, effect_duration, image_seconds)
+        _linear_mask_intro_clip(usable, mask_path, effect_duration, image_seconds, size)
         if remaining > 0.08:
-            _static_intro_clip(usable[-1], hold_path, remaining)
+            _static_intro_clip(usable[-1], hold_path, remaining, size)
             segments.append(hold_path)
         if len(segments) == 1:
             shutil.copy2(mask_path, out_path)
@@ -434,16 +445,18 @@ def render_intro_template(
     out_path: Path,
     duration: float,
     image_seconds: float,
+    size: tuple[int, int] | None = None,
 ) -> None:
+    size = size or (DEFAULT_W, DEFAULT_H)
     if template == FAST_CUT_TEMPLATE:
-        _fast_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds)
+        _fast_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, size)
     elif template == EXPAND_CUT_TEMPLATE:
-        _expand_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds)
+        _expand_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, size)
     elif template == FLASH_HORIZONTAL_TEMPLATE:
-        _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, "horizontal")
+        _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, "horizontal", size)
     elif template == FLASH_VERTICAL_TEMPLATE:
-        _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, "vertical")
+        _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, "vertical", size)
     elif template == STAGGERED_MASK_TEMPLATE:
-        _staggered_mask_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds)
+        _staggered_mask_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, size)
     else:
-        render_still_clip(image_paths[0], out_path, duration)
+        render_still_clip(image_paths[0], out_path, duration, size)

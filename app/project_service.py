@@ -9,6 +9,7 @@ from typing import Any
 from .paths import ACTIVE_PROJECT, LEGACY_PROJECT_STATE, PROJECTS_DIR, WORKSPACE
 
 TRANSIENT_IMAGE_STATUSES = {"generating", "retrying", "redrawing"}
+TRANSIENT_IMAGE_STATUS_TTL_SECONDS = 20 * 60
 PROMPT_POLICY_ERROR_MARKERS = (
     "content_policy_violation",
     "policy_violation",
@@ -68,9 +69,39 @@ def _clear_image_runtime_fields(shot: dict[str, Any]) -> None:
     shot.pop("_image_status_updated_at", None)
 
 
+def _status_started_at_seconds(shot: dict[str, Any]) -> float:
+    raw = shot.get("_image_status_started_at") or shot.get("_image_status_updated_at") or 0
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    return value / 1000 if value > 10_000_000_000 else value
+
+
+def _transient_status_is_fresh(shot: dict[str, Any]) -> bool:
+    started_at = _status_started_at_seconds(shot)
+    return bool(started_at and time.time() - started_at <= TRANSIENT_IMAGE_STATUS_TTL_SECONDS)
+
+
+def _image_is_newer_than_status(image_path: Path, shot: dict[str, Any]) -> bool:
+    started_at = _status_started_at_seconds(shot)
+    if not started_at:
+        return True
+    try:
+        return image_path.stat().st_mtime >= started_at
+    except OSError:
+        return True
+
+
 def _mark_shot_image_done(shot: dict[str, Any], project_id: str, image_path: Path) -> None:
     shot["image_path"] = str(image_path.resolve())
     shot["image_url"] = f"/workspace/projects/{project_id}/images/{image_path.name}"
+    if (
+        shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES
+        and _transient_status_is_fresh(shot)
+        and not _image_is_newer_than_status(image_path, shot)
+    ):
+        return
     shot["_image_status"] = "done"
     _clear_image_runtime_fields(shot)
     shot.pop("_image_error", None)
@@ -185,6 +216,8 @@ def _copy_project_images(state: dict[str, Any], target_project_dir: Path) -> Non
         if target and target.exists():
             _mark_shot_image_done(shot, state["project_id"], target)
         elif shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES:
+            if _transient_status_is_fresh(shot):
+                continue
             shot["_image_status"] = "pending"
             _clear_image_runtime_fields(shot)
             shot.pop("_image_error", None)
@@ -208,6 +241,8 @@ def hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, 
         if image_path and image_path.exists():
             _mark_shot_image_done(shot, project_id, image_path)
         elif shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES:
+            if _transient_status_is_fresh(shot):
+                continue
             shot["_image_status"] = "pending"
             _clear_image_runtime_fields(shot)
             shot.pop("_image_error", None)

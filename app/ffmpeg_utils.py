@@ -52,3 +52,21 @@ def media_duration(path: Path) -> float:
     if proc.returncode != 0:
         raise RenderError(proc.stderr)
     return float(proc.stdout.strip())
+
+
+def video_dimensions(path: Path) -> tuple[int, int]:
+    proc = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RenderError(proc.stderr)
+    parts = [part.strip() for part in proc.stdout.strip().split(",")]
+    if len(parts) < 2:
+        raise RenderError(f"Unable to read video dimensions: {path}")
+    return int(parts[0]), int(parts[1])

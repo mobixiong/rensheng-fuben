@@ -94,6 +94,7 @@ class RenderRequest(BaseModel):
     cleanup_intermediate: bool = True
     intro_template: str = "none"
     intro_image_seconds: float = 0.3
+    image_size: str = "9:16"
     tts_preset: str = "custom"
     bgm_id: str = "none"
     intro_sfx_id: str = "default"
@@ -105,6 +106,7 @@ class IntroPreviewRequest(BaseModel):
     templates: list[str] | None = None
     duration: float = 3.0
     image_seconds: float = 0.3
+    image_size: str = "9:16"
 
 
 class ProjectActivateRequest(BaseModel):

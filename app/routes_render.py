@@ -26,6 +26,7 @@ def render(req: RenderRequest) -> dict[str, Any]:
             bgm_id=req.bgm_id,
             intro_image_seconds=req.intro_image_seconds,
             intro_sfx_id=req.intro_sfx_id,
+            image_size=req.image_size,
         )
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -42,6 +43,7 @@ def render_intro_preview(req: IntroPreviewRequest) -> dict[str, Any]:
             templates=req.templates,
             duration=req.duration,
             image_seconds=req.image_seconds,
+            image_size=req.image_size,
         )
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

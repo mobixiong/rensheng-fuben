@@ -233,8 +233,8 @@ export function createStoryView({
       const status = hasPolicyError
         ? IMAGE_STATUS.policyError
         : activeTransientStatus
-          || (src && persistedTransientStatus
-            ? IMAGE_STATUS.done
+          || (persistedTransientStatus
+            ? rawStatus
             : !src && persistedTransientStatus && !getImageGenerationActive?.()
               ? IMAGE_STATUS.pending
               : rawStatus);

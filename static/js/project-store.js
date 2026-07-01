@@ -40,7 +40,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       els.openVideo.removeAttribute("href");
       return;
     }
-    els.preview.src = videoUrl;
+    els.preview.src = `${videoUrl}${videoUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
     els.openVideo.href = videoUrl;
     els.openVideo.hidden = false;
   }

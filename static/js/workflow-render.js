@@ -48,6 +48,12 @@ export function createRenderWorkflow({ els, ui, api, settings, storyView, projec
     };
   }
 
+  function withCacheBust(url) {
+    const value = String(url || "");
+    if (!value) return value;
+    return `${value}${value.includes("?") ? "&" : "?"}v=${Date.now()}`;
+  }
+
   async function renderVideo() {
     settings.persist();
     ui.setBusy(true);
@@ -76,6 +82,7 @@ export function createRenderWorkflow({ els, ui, api, settings, storyView, projec
         cleanup_intermediate: true,
         intro_template: els.introTemplate?.value || "none",
         intro_image_seconds: introImageSecondsValue(els),
+        image_size: els.imageSize?.value || "9:16",
         bgm_id: els.bgmSelect?.value || "none",
         intro_sfx_id: els.introSfxSelect?.value || "default",
       };
@@ -99,7 +106,7 @@ export function createRenderWorkflow({ els, ui, api, settings, storyView, projec
         await sleep(2000);
       }
       els.result.textContent = JSON.stringify(data, null, 2);
-      els.preview.src = data.video;
+      els.preview.src = withCacheBust(data.video);
       els.openVideo.href = data.video;
       els.openVideo.hidden = false;
       await projectStore.saveNow();

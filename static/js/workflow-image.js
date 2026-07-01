@@ -230,7 +230,6 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     const shotIndex = Number(index);
     if (imageJobs().has(shotIndex)) return;
     settings.persist();
-    ui.setBusy(true);
     ui.setStatus("重抽中", "busy");
     state.imageGenerationActive = true;
     clearTimeout(state.saveTimer);
@@ -285,7 +284,6 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       syncImageGenerationActive();
       storyView.renderShotGrid();
       await projectStore.loadList().catch(() => null);
-      ui.setBusy(false);
     }
   }
 

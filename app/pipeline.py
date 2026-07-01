@@ -1,8 +1,10 @@
 import asyncio
+import hashlib
 import json
 import shutil
 import time
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
@@ -10,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from .audio_assets import resolve_bgm_path, resolve_intro_sfx_path
 from .errors import RenderError
-from .ffmpeg_utils import ffmpeg_path_arg, media_duration, run_command
+from .ffmpeg_utils import ffmpeg_path_arg, media_duration, run_command, safe_unlink, video_dimensions
 from .intro_templates import (
     FAST_CUT_IMAGE_SECONDS,
     FAST_CUT_MAX_IMAGES,
@@ -21,7 +23,7 @@ from .intro_templates import (
     render_still_clip,
 )
 from .paths import WORKSPACE
-from .render_constants import H, W
+from .render_constants import H, W, render_size
 from .subtitle_renderer import write_subtitles
 from .tts_adapter import TtsConfig, synthesize_tts
 
@@ -105,7 +107,14 @@ def _draw_character(draw: ImageDraw.ImageDraw, x: int, y: int, accent: str, mood
     draw.line((x + 55, top + body_h, x + 100, top + body_h + 170), fill="#111111", width=lw)
 
 
-def render_placeholder_image(shot: dict[str, Any], out_path: Path, idx: int, title: str) -> None:
+def render_placeholder_image(
+    shot: dict[str, Any],
+    out_path: Path,
+    idx: int,
+    title: str,
+    size: tuple[int, int] | None = None,
+) -> None:
+    W, H = size or render_size()
     a, b, c = _palette(idx)
     img = Image.new("RGB", (W, H), "#f7f8fb")
     draw = ImageDraw.Draw(img)
@@ -160,6 +169,149 @@ def _concat_audio(files: list[Path], out_path: Path) -> None:
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
         "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(out_path),
     ])
+
+
+def _sha256_json(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _safe_media_duration(path: Path) -> float | None:
+    try:
+        if not path.exists() or path.stat().st_size <= 0:
+            return None
+        duration = media_duration(path)
+    except Exception:
+        return None
+    return duration if duration > 0 else None
+
+
+def _valid_audio(path: Path) -> bool:
+    duration = _safe_media_duration(path)
+    return duration is not None and duration > 0.05
+
+
+def _valid_image(path: Path) -> bool:
+    try:
+        if not path.exists() or path.stat().st_size <= 0:
+            return False
+        with Image.open(path) as img:
+            img.verify()
+    except Exception:
+        return False
+    return True
+
+
+def _valid_video(path: Path, size: tuple[int, int] | None = None, min_duration: float = 0.05) -> bool:
+    duration = _safe_media_duration(path)
+    if duration is None or duration < min_duration:
+        return False
+    if size is None:
+        return True
+    try:
+        return video_dimensions(path) == size
+    except Exception:
+        return False
+
+
+def _render_fingerprint(
+    clean: dict[str, Any],
+    image_size: str,
+    canvas_size: tuple[int, int],
+    intro_template: str,
+    intro_image_seconds: float,
+    bgm_id: str | None,
+    intro_sfx_id: str | None,
+    tts: TtsConfig,
+) -> str:
+    tts_payload = asdict(tts)
+    tts_payload["api_key"] = "***" if tts_payload.get("api_key") else ""
+    return _sha256_json({
+        "story": clean,
+        "image_size": image_size,
+        "canvas_size": canvas_size,
+        "intro_template": intro_template,
+        "intro_image_seconds": intro_image_seconds,
+        "bgm_id": bgm_id or "none",
+        "intro_sfx_id": intro_sfx_id or "default",
+        "tts": tts_payload,
+        "pipeline": 2,
+    })
+
+
+def _read_resume_manifest(path: Path, fingerprint: str) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if data.get("fingerprint") != fingerprint:
+        return {
+            "previous_fingerprint": data.get("fingerprint"),
+            "stages": data.get("stages") if isinstance(data.get("stages"), dict) else {},
+        }
+    return data
+
+
+def _write_resume_manifest(path: Path, data: dict[str, Any]) -> None:
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _tts_signature(text: str, tts: TtsConfig) -> str:
+    payload = asdict(tts)
+    payload["api_key"] = "***" if payload.get("api_key") else ""
+    return _sha256_json({"text": text, "tts": payload})
+
+
+def _asset_signature(path: Path | None) -> dict[str, str]:
+    if not path:
+        return {"path": "", "sha256": ""}
+    return {
+        "path": str(path.resolve()),
+        "sha256": _file_hash(path) if path.exists() else "",
+    }
+
+
+def _stage_done(
+    manifest: dict[str, Any],
+    stage: str,
+    key: str,
+    signature: str,
+    path: Path,
+    validator: Callable[[Path], bool],
+) -> bool:
+    entry = ((manifest.get("stages") or {}).get(stage) or {}).get(key) or {}
+    if entry.get("signature") == signature and validator(path):
+        return True
+    safe_unlink(path)
+    return False
+
+
+def _mark_stage(
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    stage: str,
+    key: str,
+    signature: str,
+    path: Path,
+    **extra: Any,
+) -> None:
+    stages = manifest.setdefault("stages", {})
+    bucket = stages.setdefault(stage, {})
+    bucket[key] = {
+        "signature": signature,
+        "path": str(path.resolve()),
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        **extra,
+    }
+    _write_resume_manifest(manifest_path, manifest)
 
 
 def _video_filter(ass: Path, intro_template: str, duration: float) -> str:
@@ -335,9 +487,11 @@ def render_intro_previews(
     templates: list[str] | None = None,
     duration: float = 3.0,
     image_seconds: float = FAST_CUT_IMAGE_SECONDS,
+    image_size: str = "9:16",
 ) -> dict[str, Any]:
     clean = normalize_story(story)
     image_seconds = normalize_intro_image_seconds(image_seconds)
+    canvas_size = render_size(image_size or story.get("image_size"))
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_preview_") + uuid.uuid4().hex[:8]
     project_dir = WORKSPACE / project_id
     preview_dir = project_dir / "previews" / "intro_templates"
@@ -356,7 +510,7 @@ def render_intro_previews(
     items: list[dict[str, str]] = []
     for template in valid_templates:
         out_path = preview_dir / f"{template}.mp4"
-        render_intro_template(template, image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds)
+        render_intro_template(template, image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, canvas_size)
         items.append({
             "id": template,
             "video": f"/workspace/{project_id}/previews/intro_templates/{template}.mp4",
@@ -384,6 +538,7 @@ def render_story(
     bgm_id: str | None = None,
     intro_sfx_id: str | None = "default",
     intro_image_seconds: float = FAST_CUT_IMAGE_SECONDS,
+    image_size: str = "9:16",
 ) -> dict[str, Any]:
     def report(progress: float, stage: str, detail: str = "", **extra: Any) -> None:
         if not progress_callback:
@@ -407,6 +562,39 @@ def render_story(
 
     report(0.02, "准备渲染", "检查分镜和项目目录")
     clean = normalize_story(story)
+    canvas_size = render_size(image_size or story.get("image_size"))
+    intro_template = intro_template if intro_template in INTRO_TEMPLATES else "none"
+    intro_image_seconds = normalize_intro_image_seconds(intro_image_seconds)
+    bgm_path = resolve_bgm_path(bgm_id)
+    intro_sfx_path = resolve_intro_sfx_path(intro_sfx_id, intro_template)
+    tts = tts_config or TtsConfig.from_payload({"voice": voice, "rate": rate})
+    fingerprint = _render_fingerprint(
+        clean,
+        image_size,
+        canvas_size,
+        intro_template,
+        intro_image_seconds,
+        bgm_id,
+        intro_sfx_id,
+        tts,
+    )
+    manifest_path = project_dir / "render_resume.json"
+    manifest = _read_resume_manifest(manifest_path, fingerprint) or {
+        "fingerprint": fingerprint,
+        "project_id": project_id,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "stages": {},
+    }
+    manifest.update({
+        "fingerprint": fingerprint,
+        "project_id": project_id,
+        "image_size": image_size,
+        "video_width": canvas_size[0],
+        "video_height": canvas_size[1],
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    _write_resume_manifest(manifest_path, manifest)
+
     shots = clean["shots"]
     shot_total = len(shots)
     script_path = project_dir / "script.json"
@@ -415,25 +603,27 @@ def render_story(
     ass_path = project_dir / "subtitle.ass"
     merged_path = project_dir / "storyboard_merged.mp4"
     final_path = project_dir / "final.mp4"
-    intro_template = intro_template if intro_template in INTRO_TEMPLATES else "none"
-    intro_image_seconds = normalize_intro_image_seconds(intro_image_seconds)
-    bgm_path = resolve_bgm_path(bgm_id)
-    intro_sfx_path = resolve_intro_sfx_path(intro_sfx_id, intro_template)
-    tts = tts_config or TtsConfig.from_payload({"voice": voice, "rate": rate})
 
     script_path.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
     voice_parts: list[Path] = []
     cursor = 0.0
     for idx, shot in enumerate(shots):
+        part_path = audio_dir / f"shot_{idx + 1:02d}.mp3"
+        part_signature = _tts_signature(str(shot["voiceover"]), tts)
+        reused_audio = _stage_done(manifest, "tts", f"shot_{idx + 1:02d}", part_signature, part_path, _valid_audio)
         report(
             0.08 + (idx / max(shot_total, 1)) * 0.3,
             "生成配音",
-            f"正在生成第 {idx + 1}/{shot_total} 段配音",
+            f"{'复用' if reused_audio else '正在生成'}第 {idx + 1}/{shot_total} 段配音",
             current=idx + 1,
             total=shot_total,
+            reused=reused_audio,
         )
-        part_path = audio_dir / f"shot_{idx + 1:02d}.mp3"
-        asyncio.run(synthesize_tts(str(shot["voiceover"]), part_path, tts))
+        if not reused_audio:
+            asyncio.run(synthesize_tts(str(shot["voiceover"]), part_path, tts))
+            if not _valid_audio(part_path):
+                raise RenderError(f"TTS output is invalid: {part_path}")
+            _mark_stage(manifest_path, manifest, "tts", f"shot_{idx + 1:02d}", part_signature, part_path)
         part_duration = media_duration(part_path)
         shot["start"] = cursor
         cursor += part_duration
@@ -441,18 +631,49 @@ def render_story(
         if not cleanup_intermediate:
             shot["audio_path"] = str(part_path.resolve())
         voice_parts.append(part_path)
-    report(0.4, "合并配音", "正在合并全部配音片段")
-    _concat_audio(voice_parts, voice_path)
+    voice_signature = _sha256_json({
+        "parts": [
+            {"path": str(path.resolve()), "sha256": _file_hash(path)}
+            for path in voice_parts
+        ],
+    })
+    reused_voice = _stage_done(manifest, "audio", "voice", voice_signature, voice_path, _valid_audio)
+    report(0.4, "合并配音", "复用已合并配音" if reused_voice else "正在合并全部配音片段", reused=reused_voice)
+    if not reused_voice:
+        _concat_audio(voice_parts, voice_path)
+        if not _valid_audio(voice_path):
+            raise RenderError(f"Merged audio is invalid: {voice_path}")
+        _mark_stage(manifest_path, manifest, "audio", "voice", voice_signature, voice_path)
     total = media_duration(voice_path)
     if shots:
         shots[-1]["end"] = total
-    report(0.46, "生成字幕", "正在写入 SRT 和 ASS 字幕")
-    write_subtitles(shots, srt_path, ass_path)
+    subtitle_signature = _sha256_json({
+        "shots": [{"voiceover": shot["voiceover"], "start": shot["start"], "end": shot["end"]} for shot in shots],
+        "size": canvas_size,
+    })
+    subtitle_entry = ((manifest.get("stages") or {}).get("subtitle") or {}).get("ass") or {}
+    reused_subtitle = (
+        subtitle_entry.get("signature") == subtitle_signature
+        and srt_path.exists()
+        and ass_path.exists()
+        and srt_path.stat().st_size > 0
+        and ass_path.stat().st_size > 0
+    )
+    report(0.46, "生成字幕", "复用已生成字幕" if reused_subtitle else "正在写入 SRT 和 ASS 字幕", reused=reused_subtitle)
+    if not reused_subtitle:
+        safe_unlink(srt_path)
+        safe_unlink(ass_path)
+        write_subtitles(shots, srt_path, ass_path, canvas_size)
+        _mark_stage(manifest_path, manifest, "subtitle", "ass", subtitle_signature, ass_path, srt=str(srt_path.resolve()))
     script_path.write_text(json.dumps({**clean, "audio_duration": total}, ensure_ascii=False, indent=2), encoding="utf-8")
 
     image_paths: list[Path] = []
+    image_signatures: list[dict[str, str]] = []
     source_shots = story.get("shots") if isinstance(story.get("shots"), list) else []
     for idx, shot in enumerate(shots):
+        img_path = images / f"shot_{idx + 1:02d}.png"
+        raw_shot = source_shots[idx] if idx < len(source_shots) and isinstance(source_shots[idx], dict) else {}
+        provided = _shot_image_source(raw_shot, shot, project_dir, idx + 1)
         report(
             0.5 + (idx / max(shot_total, 1)) * 0.12,
             "准备镜头图片",
@@ -460,50 +681,121 @@ def render_story(
             current=idx + 1,
             total=shot_total,
         )
-        img_path = images / f"shot_{idx + 1:02d}.png"
-        raw_shot = source_shots[idx] if idx < len(source_shots) and isinstance(source_shots[idx], dict) else {}
-        provided = _shot_image_source(raw_shot, shot, project_dir, idx + 1)
         if provided and provided.resolve() != img_path.resolve():
             shutil.copy2(provided, img_path)
         elif provided and provided.exists():
             pass
-        else:
-            render_placeholder_image(shot, img_path, idx, clean["title"])
+        elif not _valid_image(img_path):
+            render_placeholder_image(shot, img_path, idx, clean["title"], canvas_size)
+        if not _valid_image(img_path):
+            raise RenderError(f"Shot image is invalid: {img_path}")
+        image_signature = _asset_signature(img_path)
+        _mark_stage(
+            manifest_path,
+            manifest,
+            "image",
+            f"shot_{idx + 1:02d}",
+            _sha256_json({"image": image_signature, "size": canvas_size}),
+            img_path,
+            sha256=image_signature["sha256"],
+        )
         image_paths.append(img_path)
+        image_signatures.append(image_signature)
 
     clips: list[Path] = []
     for idx, shot in enumerate(shots):
-        report(
-            0.62 + (idx / max(shot_total, 1)) * 0.2,
-            "生成镜头视频",
-            f"正在生成第 {idx + 1}/{shot_total} 个镜头",
-            current=idx + 1,
-            total=shot_total,
-        )
         img_path = image_paths[idx]
         clip_path = clips_dir / f"shot_{idx + 1:02d}.mp4"
         clip_duration = float(shot["end"]) - float(shot["start"])
-        if idx == 0 and intro_template != "none":
-            render_intro_template(intro_template, image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration, intro_image_seconds)
-        else:
-            render_still_clip(img_path, clip_path, clip_duration)
+        is_intro_clip = idx == 0 and intro_template != "none"
+        clip_signature = _sha256_json({
+            "shot": shot,
+            "image": image_signatures[idx],
+            "intro_images": image_signatures[:FAST_CUT_MAX_IMAGES] if is_intro_clip else [],
+            "duration": round(clip_duration, 3),
+            "size": canvas_size,
+            "intro_template": intro_template if is_intro_clip else "none",
+            "intro_image_seconds": intro_image_seconds if is_intro_clip else 0,
+        })
+        reused_clip = _stage_done(
+            manifest,
+            "clip",
+            f"shot_{idx + 1:02d}",
+            clip_signature,
+            clip_path,
+            lambda path: _valid_video(path, canvas_size, min_duration=max(0.05, min(clip_duration, 0.5))),
+        )
+        report(
+            0.62 + (idx / max(shot_total, 1)) * 0.2,
+            "生成镜头视频",
+            f"{'复用' if reused_clip else '正在生成'}第 {idx + 1}/{shot_total} 个镜头",
+            current=idx + 1,
+            total=shot_total,
+            reused=reused_clip,
+        )
+        if not reused_clip:
+            if is_intro_clip:
+                render_intro_template(intro_template, image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration, intro_image_seconds, canvas_size)
+            else:
+                render_still_clip(img_path, clip_path, clip_duration, canvas_size)
+            if not _valid_video(clip_path, canvas_size, min_duration=max(0.05, min(clip_duration, 0.5))):
+                raise RenderError(f"Shot clip is invalid: {clip_path}")
+            _mark_stage(manifest_path, manifest, "clip", f"shot_{idx + 1:02d}", clip_signature, clip_path)
         clips.append(clip_path)
-    report(0.84, "合并镜头", "正在合并镜头视频")
-    _concat(clips, merged_path)
+    merged_signature = _sha256_json({
+        "clips": [{"path": str(path.resolve()), "sha256": _file_hash(path)} for path in clips],
+        "size": canvas_size,
+    })
+    reused_merged = _stage_done(
+        manifest,
+        "video",
+        "merged",
+        merged_signature,
+        merged_path,
+        lambda path: _valid_video(path, canvas_size, min_duration=max(0.05, min(total, 0.5))),
+    )
+    report(0.84, "合并镜头", "复用已合并镜头视频" if reused_merged else "正在合并镜头视频", reused=reused_merged)
+    if not reused_merged:
+        _concat(clips, merged_path)
+        if not _valid_video(merged_path, canvas_size, min_duration=max(0.05, min(total, 0.5))):
+            raise RenderError(f"Merged video is invalid: {merged_path}")
+        _mark_stage(manifest_path, manifest, "video", "merged", merged_signature, merged_path)
     extra_audio_labels = [label for label, enabled in [("BGM", bgm_path), ("开头音效", intro_sfx_path)] if enabled]
     detail = f"正在压制字幕、配音和{'、'.join(extra_audio_labels)}" if extra_audio_labels else "正在压制字幕和音频"
-    report(0.9, "导出成片", detail)
-    _final(
-        merged_path,
-        voice_path,
-        ass_path,
+    final_signature = _sha256_json({
+        "merged": _asset_signature(merged_path),
+        "voice": _asset_signature(voice_path),
+        "ass": _asset_signature(ass_path),
+        "bgm": _asset_signature(bgm_path),
+        "intro_sfx": _asset_signature(intro_sfx_path),
+        "duration": round(total, 3),
+        "intro_template": intro_template,
+        "size": canvas_size,
+    })
+    reused_final = _stage_done(
+        manifest,
+        "video",
+        "final",
+        final_signature,
         final_path,
-        total,
-        intro_template,
-        bgm_path,
-        intro_sfx_path,
-        [0.0],
+        lambda path: _valid_video(path, canvas_size, min_duration=max(0.05, min(total, 0.5))),
     )
+    report(0.9, "导出成片", "复用已导出成片" if reused_final else detail, reused=reused_final)
+    if not reused_final:
+        _final(
+            merged_path,
+            voice_path,
+            ass_path,
+            final_path,
+            total,
+            intro_template,
+            bgm_path,
+            intro_sfx_path,
+            [0.0],
+        )
+        if not _valid_video(final_path, canvas_size, min_duration=max(0.05, min(total, 0.5))):
+            raise RenderError(f"Final video is invalid: {final_path}")
+        _mark_stage(manifest_path, manifest, "video", "final", final_signature, final_path)
     if cleanup_intermediate:
         report(0.98, "清理文件", "正在清理临时渲染文件")
         _cleanup_intermediate(project_dir, audio_dir, clips_dir, merged_path)
@@ -519,6 +811,9 @@ def render_story(
         "cleanup_intermediate": cleanup_intermediate,
         "intro_template": intro_template,
         "intro_image_seconds": intro_image_seconds,
+        "image_size": image_size,
+        "video_width": canvas_size[0],
+        "video_height": canvas_size[1],
         "tts_provider": tts.provider,
         "bgm": str(bgm_path.resolve()) if bgm_path else "",
         "intro_sfx": str(intro_sfx_path.resolve()) if intro_sfx_path else "",

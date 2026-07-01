@@ -6,7 +6,6 @@ from PIL import Image, ImageDraw, ImageFont
 from .render_constants import H, W
 
 SUBTITLE_FONT_SIZE = 54
-SUBTITLE_MAX_WIDTH = W - 180
 
 
 def _font_path() -> str:
@@ -54,7 +53,7 @@ def _ass_escape(text: str) -> str:
     return str(text).replace("\n", " ").replace("\r", " ").replace("{", "｛").replace("}", "｝").strip()
 
 
-def _subtitle_chunks(text: str, max_width: int = SUBTITLE_MAX_WIDTH) -> list[str]:
+def _subtitle_chunks(text: str, max_width: int) -> list[str]:
     clean = " ".join(str(text or "").split())
     if not clean:
         return [""]
@@ -89,13 +88,13 @@ def _subtitle_chunks(text: str, max_width: int = SUBTITLE_MAX_WIDTH) -> list[str
     return [chunk for chunk in chunks if chunk] or [clean]
 
 
-def _subtitle_events(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _subtitle_events(shots: list[dict[str, Any]], max_width: int) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     for shot in shots:
         start = float(shot["start"])
         end = float(shot["end"])
         duration = max(0.1, end - start)
-        chunks = _subtitle_chunks(str(shot.get("voiceover", "")))
+        chunks = _subtitle_chunks(str(shot.get("voiceover", "")), max_width)
         weights = [max(1, len(chunk)) for chunk in chunks]
         total_weight = max(1, sum(weights))
         cursor = start
@@ -113,8 +112,9 @@ def _subtitle_events(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return events
 
 
-def write_subtitles(shots: list[dict[str, Any]], srt_path: Path, ass_path: Path) -> None:
-    events = _subtitle_events(shots)
+def write_subtitles(shots: list[dict[str, Any]], srt_path: Path, ass_path: Path, size: tuple[int, int] | None = None) -> None:
+    width, height = size or (W, H)
+    events = _subtitle_events(shots, max(360, width - 180))
     srt = []
     for i, event in enumerate(events, 1):
         srt.append(f"{i}\n{_srt_ts(event['start'])} --> {_srt_ts(event['end'])}\n{event['text']}\n")
@@ -122,8 +122,8 @@ def write_subtitles(shots: list[dict[str, Any]], srt_path: Path, ass_path: Path)
     ass = [
         "[Script Info]",
         "ScriptType: v4.00+",
-        f"PlayResX: {W}",
-        f"PlayResY: {H}",
+        f"PlayResX: {width}",
+        f"PlayResY: {height}",
         "ScaledBorderAndShadow: yes",
         "",
         "[V4+ Styles]",

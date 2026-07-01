@@ -1,4 +1,5 @@
 import { INTRO_TEMPLATES } from "./constants.js";
+import { introImageSecondsValue } from "./workflow-utils.js";
 
 const INTRO_TEMPLATE_LABELS = {
   life_copy_fast_cut: "翻页快切模板",
@@ -17,7 +18,7 @@ const INTRO_TEMPLATE_PREVIEW_ITEMS = [
   video: `/static/assets/intro-previews/${id}.mp4`,
 }));
 
-export function createMediaWorkflow({ els, ui, api, settings, projectStore }) {
+export function createMediaWorkflow({ els, ui, api, settings, projectStore, storyView }) {
   function openIntroPreviewModal() {
     if (!els.introPreviewModal) return;
     els.introPreviewModal.hidden = false;
@@ -123,10 +124,12 @@ export function createMediaWorkflow({ els, ui, api, settings, projectStore }) {
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "intro-preview-empty";
-      empty.textContent = "暂无预览";
+      if (data?.error) empty.classList.add("error");
+      empty.textContent = data?.message || "暂无预览";
       els.introPreviewGrid.appendChild(empty);
       return;
     }
+    const cacheKey = Date.now();
     for (const item of items) {
       const templateId = String(item.id || "");
       const card = document.createElement("button");
@@ -136,7 +139,8 @@ export function createMediaWorkflow({ els, ui, api, settings, projectStore }) {
       card.classList.toggle("active", els.introTemplate?.value === templateId);
 
       const video = document.createElement("video");
-      video.src = String(item.video || "");
+      const videoUrl = String(item.video || "");
+      video.src = videoUrl ? `${videoUrl}${videoUrl.includes("?") ? "&" : "?"}v=${cacheKey}` : "";
       video.controls = true;
       video.muted = true;
       video.playsInline = true;
@@ -162,8 +166,24 @@ export function createMediaWorkflow({ els, ui, api, settings, projectStore }) {
   async function previewIntroTemplates() {
     settings.persist();
     openIntroPreviewModal();
-    renderIntroPreviewGrid({ items: INTRO_TEMPLATE_PREVIEW_ITEMS });
-    ui.setStatus("开头模板预览已打开");
+    renderIntroPreviewGrid({ message: "正在生成开头模板预览..." });
+    ui.setStatus("生成开头预览", "busy");
+    try {
+      await projectStore.ensureSaved({ applyState: false });
+      const data = await api.postJson("/api/render/intro-previews", {
+        story: storyView.read(),
+        project_id: projectStore.mediaProjectId(),
+        templates: INTRO_TEMPLATE_PREVIEW_ITEMS.map((item) => item.id),
+        duration: 3,
+        image_seconds: introImageSecondsValue(els),
+        image_size: els.imageSize?.value || "9:16",
+      });
+      renderIntroPreviewGrid(data);
+      ui.setStatus("开头模板预览已生成");
+    } catch (err) {
+      renderIntroPreviewGrid({ error: true, message: String(err.message || err) });
+      ui.setStatus("开头预览失败", "error");
+    }
   }
 
   return {
