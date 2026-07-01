@@ -152,6 +152,24 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
     }
   }
 
+  function getShotImagePrompt(index) {
+    const story = readOrNull();
+    const shot = story?.shots?.[Number(index)];
+    return String(shot?.image_prompt || "");
+  }
+
+  function updateShotImagePrompt(index, value) {
+    const shotIndex = Number(index);
+    if (!Number.isInteger(shotIndex) || shotIndex < 0) return false;
+    const story = read();
+    if (!Array.isArray(story.shots) || !story.shots[shotIndex]) return false;
+    story.shots[shotIndex].image_prompt = String(value || "").trim();
+    story.shots[shotIndex]._image_prompt_edited_at = Date.now();
+    delete story.shots[shotIndex].resolved_image_prompt;
+    write(story);
+    return true;
+  }
+
   function renderShotGrid() {
     if (!els.shotGrid) return;
     let story;
@@ -221,6 +239,9 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
       const selected = selectedShots.has(index) ? " selected" : "";
       const punch = shot.punch || shot.keyword || `镜头 ${index + 1}`;
       const voiceover = shot.voiceover || "";
+      const imagePrompt = String(shot.image_prompt || "");
+      const promptPreview = imagePrompt || "双击填写图片提示词";
+      const promptTitle = imagePrompt || "双击填写图片提示词";
       return `
         <article class="shot-card${selected}" data-shot="${index}" style="--shot-ratio: ${ratio}">
           <div class="shot-thumb" data-select-shot="${index}" role="button" tabindex="0" aria-pressed="${selected ? "true" : "false"}" aria-label="切换选择镜头 ${index + 1}">
@@ -234,6 +255,13 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
               <span>${String(index + 1).padStart(2, "0")}</span>
             </div>
             <p>${escapeHtml(voiceover)}</p>
+            <div class="shot-prompt" data-edit-shot-prompt="${index}" title="${escapeHtml(promptTitle)}" role="button" tabindex="0" aria-label="编辑镜头 ${index + 1} 图片提示词">
+              <div class="shot-prompt-head">
+                <strong>图片提示词</strong>
+                <span>${imagePrompt.length} 字</span>
+              </div>
+              <p>${escapeHtml(promptPreview)}</p>
+            </div>
           </div>
         </article>
       `;
@@ -282,5 +310,7 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
     validate,
     withImageSize,
     applyImageSize,
+    getShotImagePrompt,
+    updateShotImagePrompt,
   };
 }
