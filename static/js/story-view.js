@@ -1,6 +1,7 @@
+import { IMAGE_STATUS, IMAGE_SIZES, IMAGE_TRANSIENT_STATUSES } from "./constants.js";
 import { escapeHtml } from "./html.js";
 
-export function createStoryView({ els, getSelectedShots, setSelectedShots, getActiveTab, onStoryChanged }) {
+export function createStoryView({ els, getSelectedShots, setSelectedShots, getActiveTab, getImageGenerationActive, onStoryChanged }) {
   function read() {
     return JSON.parse(els.editor.value);
   }
@@ -33,6 +34,7 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
   }
 
   function updatePromptMeta() {
+    if (els.themeIntroMeta) els.themeIntroMeta.textContent = `${els.themeIntro?.value.length || 0} 字`;
     if (els.copyPromptMeta) els.copyPromptMeta.textContent = `${els.copyPrompt.value.length} 字`;
     if (els.copyMeta) els.copyMeta.textContent = `${els.copyOutput.value.length} 字`;
     if (els.copyToStoryPromptMeta) els.copyToStoryPromptMeta.textContent = `${els.copyToStoryPrompt.value.length} 字`;
@@ -59,9 +61,17 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
 
   function normalizeImageRatio(value) {
     const ratio = String(value || "").trim();
-    if (ratio === "9:16" || ratio === "9 / 16") return "9 / 16";
-    if (ratio === "1:1" || ratio === "1 / 1") return "1 / 1";
-    if (ratio === "16:9" || ratio === "16 / 9") return "16 / 9";
+    if (ratio === IMAGE_SIZES[0] || ratio === "9 / 16") return "9 / 16";
+    if (ratio === IMAGE_SIZES[1] || ratio === "1 / 1") return "1 / 1";
+    if (ratio === IMAGE_SIZES[2] || ratio === "16 / 9") return "16 / 9";
+    return "";
+  }
+
+  function normalizeImageSizeToken(value) {
+    const ratio = String(value || "").trim();
+    if (ratio === IMAGE_SIZES[0] || ratio === "9 / 16") return IMAGE_SIZES[0];
+    if (ratio === IMAGE_SIZES[1] || ratio === "1 / 1") return IMAGE_SIZES[1];
+    if (ratio === IMAGE_SIZES[2] || ratio === "16 / 9") return IMAGE_SIZES[2];
     return "";
   }
 
@@ -77,6 +87,26 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
       || normalizeImageRatio(story.image_size)
       || normalizeImageRatio(els.imageSize?.value)
       || "9 / 16";
+  }
+
+  function withImageSize(story, size) {
+    const imageSize = normalizeImageSizeToken(size);
+    if (!imageSize || !story || typeof story !== "object") return story;
+    return {
+      ...story,
+      image_size: imageSize,
+      shots: Array.isArray(story.shots)
+        ? story.shots.map((shot) => ({ ...shot, image_size: imageSize }))
+        : story.shots,
+    };
+  }
+
+  function applyImageSize(size, options = {}) {
+    try {
+      write(withImageSize(read(), size), options);
+    } catch {
+      renderShotGrid();
+    }
   }
 
   function hydrateLoadedImageRatios() {
@@ -137,31 +167,54 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
     els.shotGrid.innerHTML = shots.map((shot, index) => {
       const src = shotImageSrc(shot);
       const ratio = shotImageRatio(shot, story);
-      const status = shot._image_status || "";
-      const placeholderText = status === "generating"
+      const rawStatus = shot._image_status || "";
+      const errorText = String(shot._image_error || "");
+      const hasPolicyError = rawStatus === IMAGE_STATUS.policyError
+        || shot._image_error_category === "prompt_policy"
+        || errorText.includes("content_policy_violation")
+        || errorText.includes("提示词被内容安全策略拦截")
+        || errorText.includes("不合规")
+        || errorText.includes("防护限制");
+      const status = hasPolicyError
+        ? IMAGE_STATUS.policyError
+        : !src && !getImageGenerationActive?.() && IMAGE_TRANSIENT_STATUSES.includes(rawStatus)
+        ? IMAGE_STATUS.pending
+        : rawStatus;
+      const placeholderText = status === IMAGE_STATUS.redrawing
+        ? "重抽中"
+        : status === IMAGE_STATUS.generating
         ? "生成中"
-        : status === "retrying"
+        : status === IMAGE_STATUS.retrying
           ? `重试中 ${shot._image_attempt || ""}`
-          : status === "error"
+          : status === IMAGE_STATUS.policyError
+            ? "提示词不合规<br />请修改后重试"
+          : status === IMAGE_STATUS.error
             ? "生成失败"
             : "等待生成";
-      const placeholderClass = status === "generating" || status === "retrying" ? " generating" : status === "error" ? " error" : "";
-      const statusLabel = src
-        ? "已完成"
-        : status === "generating"
+      const placeholderClass = status === IMAGE_STATUS.redrawing || status === IMAGE_STATUS.generating || status === IMAGE_STATUS.retrying ? " generating" : status === IMAGE_STATUS.policyError ? " policy-error" : status === IMAGE_STATUS.error ? " error" : "";
+      const statusLabel = status === IMAGE_STATUS.redrawing
+        ? "重抽中"
+        : status === IMAGE_STATUS.generating
           ? "生成中"
-          : status === "retrying"
+          : status === IMAGE_STATUS.retrying
             ? "重试中"
-            : status === "error"
+            : status === IMAGE_STATUS.policyError
+              ? "提示词不合规"
+            : status === IMAGE_STATUS.error
               ? "失败"
-              : "等待中";
-      const statusClass = src
-        ? "done"
-        : status === "generating" || status === "retrying"
-          ? "generating"
-          : status === "error"
-            ? "error"
+              : src
+                ? "已完成"
+                : "等待中";
+      const statusClass = status === IMAGE_STATUS.redrawing || status === IMAGE_STATUS.generating || status === IMAGE_STATUS.retrying
+        ? "generating"
+        : status === IMAGE_STATUS.policyError
+          ? "policy-error"
+        : status === IMAGE_STATUS.error
+          ? "error"
+          : src
+            ? "done"
             : "pending";
+      const errorTitle = shot._image_error ? ` title="${escapeHtml(String(shot._image_error))}"` : "";
       const thumb = src
         ? `<img src="${src}" alt="镜头 ${index + 1}" />`
         : `<div class="shot-placeholder${placeholderClass}">镜头 ${index + 1}<br />${placeholderText}</div>`;
@@ -171,7 +224,7 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
       return `
         <article class="shot-card${selected}" data-shot="${index}" style="--shot-ratio: ${ratio}">
           <div class="shot-thumb" data-select-shot="${index}" role="button" tabindex="0" aria-pressed="${selected ? "true" : "false"}" aria-label="切换选择镜头 ${index + 1}">
-            <span class="state-badge ${statusClass}">${statusLabel}</span>
+            <span class="state-badge ${statusClass}"${errorTitle}>${statusLabel}</span>
             <button class="shot-redraw-button" type="button" data-redraw-shot="${index}" title="重抽" aria-label="重抽镜头 ${index + 1}">↻</button>
             ${thumb}
           </div>
@@ -227,5 +280,7 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
     updateSelection,
     onEditorInput,
     validate,
+    withImageSize,
+    applyImageSize,
   };
 }

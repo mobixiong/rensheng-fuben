@@ -9,7 +9,7 @@ const ui = createUi();
 const { els } = ui;
 
 const state = {
-  activeTab: "copy",
+  activeTab: "theme",
   selectedShots: new Set(),
   saveTimer: 0,
   restoringProject: false,
@@ -19,6 +19,7 @@ const state = {
 };
 
 let projectStore;
+let shotClickTimer = 0;
 
 const layoutKeys = {
   sidebar: "lifeCopy.sidebarCollapsed",
@@ -77,6 +78,23 @@ function restoreLayoutPrefs() {
   setImagePromptExpanded(readLayoutFlag(layoutKeys.imagePrompt, false), false);
 }
 
+function updatePreviewAspect() {
+  const panel = els.preview?.closest(".preview-panel");
+  if (!panel) return;
+  panel.classList.remove("landscape", "portrait", "square");
+  const width = Number(els.preview.videoWidth || 0);
+  const height = Number(els.preview.videoHeight || 0);
+  if (!width || !height) return;
+  const diff = Math.abs(width - height) / Math.max(width, height);
+  if (diff < 0.08) {
+    panel.classList.add("square");
+  } else if (width > height) {
+    panel.classList.add("landscape");
+  } else {
+    panel.classList.add("portrait");
+  }
+}
+
 function selectedShotIndexes() {
   return Array.from(state.selectedShots).sort((a, b) => a - b);
 }
@@ -97,6 +115,23 @@ function toggleSelectedShot(index) {
   storyView.updateSelection();
 }
 
+function openImagePreviewFromThumb(thumb) {
+  const img = thumb?.querySelector?.("img");
+  const modal = $("imagePreviewModal");
+  const preview = $("imagePreviewFull");
+  if (!img?.src || !modal || !preview) return;
+  preview.src = img.src;
+  modal.hidden = false;
+}
+
+function closeImagePreview() {
+  const modal = $("imagePreviewModal");
+  const preview = $("imagePreviewFull");
+  if (!modal) return;
+  modal.hidden = true;
+  if (preview) preview.removeAttribute("src");
+}
+
 function applyTtsPreset() {
   if (els.ttsProvider?.value === "minimax") return;
   const option = els.ttsPreset?.selectedOptions?.[0];
@@ -111,6 +146,11 @@ function setActiveTab(tab) {
   if (tab === "image") storyView.renderShotGrid();
 }
 
+function syncThemeMirrors() {
+  if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
+  if (els.themeIntroMirror) els.themeIntroMirror.textContent = els.themeIntro?.value.trim() || "未填写主题介绍";
+}
+
 const settings = createSettings({ els });
 
 const storyView = createStoryView({
@@ -118,6 +158,7 @@ const storyView = createStoryView({
   getSelectedShots: () => state.selectedShots,
   setSelectedShots,
   getActiveTab: () => state.activeTab,
+  getImageGenerationActive: () => state.imageGenerationActive,
   onStoryChanged: () => projectStore?.scheduleSave(),
 });
 
@@ -158,11 +199,28 @@ function bindEvents() {
 
     const selectButton = event.target.closest("[data-select-shot]");
     if (selectButton) {
-      toggleSelectedShot(selectButton.dataset.selectShot);
+      clearTimeout(shotClickTimer);
+      shotClickTimer = window.setTimeout(() => {
+        toggleSelectedShot(selectButton.dataset.selectShot);
+        shotClickTimer = 0;
+      }, 180);
     }
   });
 
+  document.addEventListener("dblclick", (event) => {
+    if (event.target.closest("[data-redraw-shot]")) return;
+    const thumb = event.target.closest("[data-select-shot]");
+    if (!thumb) return;
+    clearTimeout(shotClickTimer);
+    shotClickTimer = 0;
+    openImagePreviewFromThumb(thumb);
+  });
+
   $("loadExample").addEventListener("click", workflow.loadExample);
+  $("generateTheme")?.addEventListener("click", workflow.generateTheme);
+  $("rerollTheme")?.addEventListener("click", () => workflow.generateTheme({ reroll: true }));
+  $("reviseTheme")?.addEventListener("click", workflow.reviseTheme);
+  $("goCopyFromTheme")?.addEventListener("click", () => setActiveTab("copy"));
   $("generate").addEventListener("click", workflow.generateStory);
   $("generateCopy").addEventListener("click", workflow.generateCopy);
   $("buildStoryboard").addEventListener("click", workflow.buildStoryboardFromCopy);
@@ -172,8 +230,14 @@ function bindEvents() {
   $("validate").addEventListener("click", () => storyView.validate(els.result, ui.setStatus));
   $("render").addEventListener("click", workflow.renderVideo);
   $("previewIntroTemplates")?.addEventListener("click", workflow.previewIntroTemplates);
+  $("uploadBgm")?.addEventListener("click", workflow.uploadBgm);
+  $("uploadIntroSfx")?.addEventListener("click", workflow.uploadIntroSfx);
   $("closeIntroPreview")?.addEventListener("click", workflow.closeIntroPreviewModal);
   $("introPreviewBackdrop")?.addEventListener("click", workflow.closeIntroPreviewModal);
+  $("closeImagePreview")?.addEventListener("click", closeImagePreview);
+  $("imagePreviewBackdrop")?.addEventListener("click", closeImagePreview);
+  els.preview?.addEventListener("loadedmetadata", updatePreviewAspect);
+  els.preview?.addEventListener("emptied", updatePreviewAspect);
   $("sidebarToggle")?.addEventListener("click", () => {
     setSidebarCollapsed(!document.querySelector(".app-frame")?.classList.contains("sidebar-collapsed"));
   });
@@ -200,6 +264,9 @@ function bindEvents() {
   $("testImageConnection").addEventListener("click", workflow.testImageConnection);
   $("resetCopyPrompt").addEventListener("click", () => {
     settings.resetCopyPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
+  });
+  $("copyPromptPreset")?.addEventListener("change", () => {
+    settings.applyCopyPromptPreset(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
   $("resetCopyToStoryPrompt")?.addEventListener("click", () => {
     settings.resetCopyToStoryPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
@@ -228,8 +295,22 @@ function bindEvents() {
     storyView.updatePromptMeta();
     projectStore.scheduleSave();
   });
+  els.themeBrief?.addEventListener("input", () => {
+    settings.persist();
+    projectStore.scheduleSave();
+  });
+  els.themeIntro?.addEventListener("input", () => {
+    syncThemeMirrors();
+    settings.persist();
+    storyView.updatePromptMeta();
+    projectStore.scheduleSave();
+  });
+  els.themeRevision?.addEventListener("input", () => {
+    settings.persist();
+    projectStore.scheduleSave();
+  });
   els.topic.addEventListener("input", () => {
-    if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
+    syncThemeMirrors();
     settings.persist();
     projectStore.scheduleSave();
   });
@@ -243,7 +324,6 @@ function bindEvents() {
     "imageBaseUrl",
     "imageModel",
     "imageApiKey",
-    "imageSize",
     "ttsBaseUrl",
     "ttsGroupId",
     "ttsModel",
@@ -256,7 +336,12 @@ function bindEvents() {
   ]) {
     $(id).addEventListener("change", settings.persist);
   }
-  for (const id of ["introTemplate", "introImageSeconds", "bgmSelect"]) {
+  $("imageSize")?.addEventListener("change", () => {
+    settings.persist();
+    storyView.applyImageSize(els.imageSize.value, { scheduleSave: false });
+    projectStore.scheduleSave();
+  });
+  for (const id of ["introTemplate", "introImageSeconds", "bgmSelect", "introSfxSelect"]) {
     $(id)?.addEventListener("change", () => {
       settings.persist();
       projectStore.scheduleSave();
@@ -294,6 +379,7 @@ function bindEvents() {
       return;
     }
     if (event.key === "Escape") {
+      closeImagePreview();
       workflow.closeIntroPreviewModal();
       ui.closeSettings();
     }
@@ -304,6 +390,7 @@ async function boot() {
   bindEvents();
   restoreLayoutPrefs();
   await workflow.loadBgmOptions().catch(() => null);
+  await workflow.loadIntroSfxOptions().catch(() => null);
   settings.load();
   applyTtsPreset();
   settings.updateTtsProviderVisibility();

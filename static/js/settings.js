@@ -1,6 +1,14 @@
 import {
+  COPY_PROMPT_PRESETS,
+  COPY_PROMPT_VERSION,
+  COPY_TO_STORY_PROMPT_VERSION,
+  DEFAULT_COPY_PROMPT_PRESET,
+  DEFAULT_IMAGE_SIZE,
+  DEFAULT_INTRO_TEMPLATE,
   GEMINI_WEB2API_DEFAULT_BASE_URL,
   GEMINI_WEB2API_DEFAULT_MODEL,
+  IMAGE_SIZES,
+  INTRO_TEMPLATES,
   MINIMAX_TTS_DEFAULT_BASE_URL,
   MINIMAX_TTS_DEFAULT_MODEL,
   MINIMAX_TTS_DEFAULT_VOICE_ID,
@@ -11,8 +19,13 @@ const SECRET_SETTINGS_KEY = `${SETTINGS_KEY}-session-secrets`;
 
 export function createSettings({ els }) {
   let defaultCopyPrompt = "";
+  let defaultCopyPrompts = {};
   let defaultCopyToStoryPrompt = "";
   let defaultImagePrompt = "";
+
+  function copyPromptPreset() {
+    return COPY_PROMPT_PRESETS.includes(els.copyPromptPreset?.value) ? els.copyPromptPreset.value : DEFAULT_COPY_PROMPT_PRESET;
+  }
 
   function readJson(storage, key) {
     try {
@@ -31,7 +44,6 @@ export function createSettings({ els }) {
   function cleanPersistedSettings(s) {
     const cleaned = { ...s };
     delete cleaned.apiKey;
-    delete cleaned.imageApiKey;
     delete cleaned.ttsApiKey;
     return cleaned;
   }
@@ -73,17 +85,22 @@ export function createSettings({ els }) {
   function persist() {
     writeJson(localStorage, SETTINGS_KEY, {
       topic: els.topic.value,
+      themeBrief: els.themeBrief?.value || "",
+      themeIntro: els.themeIntro?.value || "",
+      themeRevision: els.themeRevision?.value || "",
       textProvider: els.textProvider.value,
       baseUrl: els.baseUrl.value,
       model: els.model.value,
       imageProvider: els.imageProvider.value,
       imageBaseUrl: els.imageBaseUrl.value,
       imageModel: els.imageModel.value,
+      imageApiKey: els.imageApiKey.value,
       imageSize: els.imageSize.value,
       introTemplate: els.introTemplate?.value || "none",
       introImageSeconds: els.introImageSeconds?.value || "0.3",
       ttsPreset: els.ttsPreset?.value || "custom",
       bgmSelect: els.bgmSelect?.value || "none",
+      introSfxSelect: els.introSfxSelect?.value || "default",
       ttsProvider: els.ttsProvider?.value || "edge",
       ttsBaseUrl: els.ttsBaseUrl?.value || "",
       ttsGroupId: els.ttsGroupId?.value || "",
@@ -94,8 +111,11 @@ export function createSettings({ els }) {
       ttsLanguageBoost: els.ttsLanguageBoost?.value || "Chinese",
       voice: els.voice.value,
       rate: els.rate.value,
+      copyPromptPreset: copyPromptPreset(),
       copyPrompt: els.copyPrompt.value,
+      copyPromptVersion: COPY_PROMPT_VERSION,
       copyToStoryPrompt: els.copyToStoryPrompt?.value || "",
+      copyToStoryPromptVersion: COPY_TO_STORY_PROMPT_VERSION,
       imagePrompt: els.imagePrompt.value,
     });
     writeJson(sessionStorage, SECRET_SETTINGS_KEY, {
@@ -117,8 +137,17 @@ export function createSettings({ els }) {
         });
         writeJson(localStorage, SETTINGS_KEY, cleanPersistedSettings(s));
       }
+      if (secrets.imageApiKey && secrets.imageApiKey !== s.imageApiKey) {
+        writeJson(localStorage, SETTINGS_KEY, {
+          ...cleanPersistedSettings(s),
+          imageApiKey: secrets.imageApiKey,
+        });
+      }
       els.textProvider.value = ["openai", "gemini_web2api"].includes(s.textProvider) ? s.textProvider : "openai";
       if (s.topic) els.topic.value = s.topic;
+      if (els.themeBrief && typeof s.themeBrief === "string") els.themeBrief.value = s.themeBrief;
+      if (els.themeIntro && typeof s.themeIntro === "string") els.themeIntro.value = s.themeIntro;
+      if (els.themeRevision && typeof s.themeRevision === "string") els.themeRevision.value = s.themeRevision;
       els.baseUrl.value = s.baseUrl || "";
       els.model.value = s.model || "";
       els.apiKey.value = secrets.apiKey || s.apiKey || "";
@@ -126,16 +155,19 @@ export function createSettings({ els }) {
       els.imageBaseUrl.value = s.imageBaseUrl || "";
       els.imageModel.value = s.imageModel || "";
       els.imageApiKey.value = secrets.imageApiKey || s.imageApiKey || "";
-      els.imageSize.value = ["9:16", "1:1", "16:9"].includes(s.imageSize) ? s.imageSize : "9:16";
+      els.imageSize.value = IMAGE_SIZES.includes(s.imageSize) ? s.imageSize : DEFAULT_IMAGE_SIZE;
       if (els.introTemplate) {
-        els.introTemplate.value = ["none", "life_copy_fast_cut", "life_copy_expand_cut", "life_copy_flash_horizontal", "life_copy_flash_vertical", "life_copy_staggered_mask"].includes(s.introTemplate)
+        els.introTemplate.value = INTRO_TEMPLATES.includes(s.introTemplate)
           ? s.introTemplate
-          : "life_copy_fast_cut";
+          : DEFAULT_INTRO_TEMPLATE;
       }
       if (els.introImageSeconds) els.introImageSeconds.value = s.introImageSeconds || "0.3";
       if (els.ttsPreset) els.ttsPreset.value = s.ttsPreset || "male_fast";
       if (els.bgmSelect && s.bgmSelect && Array.from(els.bgmSelect.options).some((option) => option.value === s.bgmSelect)) {
         els.bgmSelect.value = s.bgmSelect;
+      }
+      if (els.introSfxSelect && s.introSfxSelect && Array.from(els.introSfxSelect.options).some((option) => option.value === s.introSfxSelect)) {
+        els.introSfxSelect.value = s.introSfxSelect;
       }
       if (els.ttsProvider) els.ttsProvider.value = ["edge", "minimax"].includes(s.ttsProvider) ? s.ttsProvider : "edge";
       if (els.ttsBaseUrl) els.ttsBaseUrl.value = s.ttsBaseUrl || MINIMAX_TTS_DEFAULT_BASE_URL;
@@ -148,8 +180,13 @@ export function createSettings({ els }) {
       if (els.ttsLanguageBoost) els.ttsLanguageBoost.value = s.ttsLanguageBoost || "Chinese";
       els.voice.value = s.voice || "zh-CN-YunxiNeural";
       els.rate.value = s.rate || "+12%";
-      if (s.copyPrompt) els.copyPrompt.value = s.copyPrompt;
-      if (els.copyToStoryPrompt && s.copyToStoryPrompt) els.copyToStoryPrompt.value = s.copyToStoryPrompt;
+      if (els.copyPromptPreset) {
+        els.copyPromptPreset.value = COPY_PROMPT_PRESETS.includes(s.copyPromptPreset) ? s.copyPromptPreset : DEFAULT_COPY_PROMPT_PRESET;
+      }
+      if (s.copyPrompt && s.copyPromptVersion === COPY_PROMPT_VERSION) els.copyPrompt.value = s.copyPrompt;
+      if (els.copyToStoryPrompt && s.copyToStoryPrompt && s.copyToStoryPromptVersion === COPY_TO_STORY_PROMPT_VERSION) {
+        els.copyToStoryPrompt.value = s.copyToStoryPrompt;
+      }
       if (s.imagePrompt) els.imagePrompt.value = s.imagePrompt;
       applyTextProviderDefaults();
       updateTtsProviderVisibility();
@@ -157,22 +194,39 @@ export function createSettings({ els }) {
   }
 
   async function loadPromptDefaults(fetchJson, updatePromptMeta) {
-    const [copyData, copyToStoryData, imageData] = await Promise.all([
+    const [copyData, copyXianxiaData, copyToStoryData, imageData] = await Promise.all([
       fetchJson("/api/prompt/default"),
+      fetchJson("/api/prompt/copy-xianxia"),
       fetchJson("/api/prompt/copy-to-story"),
       fetchJson("/api/prompt/image"),
     ]);
-    defaultCopyPrompt = copyData.prompt || "";
+    defaultCopyPrompts = {
+      reality: copyData.prompt || "",
+      xianxia: copyXianxiaData.prompt || "",
+    };
+    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality || "";
     defaultCopyToStoryPrompt = copyToStoryData.prompt || "";
     defaultImagePrompt = imageData.prompt || "";
     if (!els.copyPrompt.value.trim()) els.copyPrompt.value = defaultCopyPrompt;
-    if (els.copyToStoryPrompt && !els.copyToStoryPrompt.value.trim()) els.copyToStoryPrompt.value = defaultCopyToStoryPrompt;
+    if (els.copyToStoryPrompt && !els.copyToStoryPrompt.value.trim()) {
+      els.copyToStoryPrompt.value = defaultCopyToStoryPrompt;
+      persist();
+    }
     if (!els.imagePrompt.value.trim()) els.imagePrompt.value = defaultImagePrompt;
     updatePromptMeta();
   }
 
   function resetCopyPrompt(updatePromptMeta, scheduleSave) {
+    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality || "";
     els.copyPrompt.value = defaultCopyPrompt;
+    persist();
+    updatePromptMeta();
+    scheduleSave();
+  }
+
+  function applyCopyPromptPreset(updatePromptMeta, scheduleSave) {
+    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality || "";
+    if (defaultCopyPrompt) els.copyPrompt.value = defaultCopyPrompt;
     persist();
     updatePromptMeta();
     scheduleSave();
@@ -196,6 +250,7 @@ export function createSettings({ els }) {
   function textPayload() {
     return {
       topic: els.topic.value.trim(),
+      topic_intro: els.themeIntro?.value.trim() || "",
       provider: els.textProvider.value,
       base_url: els.baseUrl.value.trim(),
       model: els.model.value.trim(),
@@ -208,6 +263,7 @@ export function createSettings({ els }) {
   function storyPayload() {
     return {
       topic: els.topic.value.trim(),
+      topic_intro: els.themeIntro?.value.trim() || "",
       provider: els.textProvider.value,
       base_url: els.baseUrl.value.trim(),
       model: els.model.value.trim(),
@@ -226,9 +282,30 @@ export function createSettings({ els }) {
     };
   }
 
+  function themePayload() {
+    return {
+      brief: els.themeBrief?.value.trim() || els.topic.value.trim(),
+      provider: els.textProvider.value,
+      base_url: els.baseUrl.value.trim(),
+      model: els.model.value.trim(),
+      api_key: els.apiKey.value.trim(),
+      temperature: 0.7,
+    };
+  }
+
+  function themeRevisionPayload() {
+    return {
+      ...themePayload(),
+      topic: els.topic.value.trim(),
+      intro: els.themeIntro?.value.trim() || "",
+      instruction: els.themeRevision?.value.trim() || "",
+    };
+  }
+
   function copyToStoryPayload(copyText) {
     return {
       topic: els.topic.value.trim(),
+      topic_intro: els.themeIntro?.value.trim() || "",
       copy_text: copyText.trim(),
       provider: els.textProvider.value,
       base_url: els.baseUrl.value.trim(),
@@ -245,7 +322,7 @@ export function createSettings({ els }) {
       base_url: els.imageBaseUrl.value.trim(),
       model: els.imageModel.value.trim(),
       api_key: els.imageApiKey.value.trim(),
-      size: els.imageSize.value.trim() || "9:16",
+      size: els.imageSize.value.trim() || DEFAULT_IMAGE_SIZE,
     };
   }
 
@@ -256,7 +333,7 @@ export function createSettings({ els }) {
       base_url: els.imageBaseUrl.value.trim(),
       model: els.imageModel.value.trim(),
       api_key: els.imageApiKey.value.trim(),
-      size: els.imageSize.value.trim() || "9:16",
+      size: els.imageSize.value.trim() || DEFAULT_IMAGE_SIZE,
       fixed_prompt: els.imagePrompt.value,
       ...extra,
     };
@@ -268,10 +345,13 @@ export function createSettings({ els }) {
     load,
     loadPromptDefaults,
     resetCopyPrompt,
+    applyCopyPromptPreset,
     resetCopyToStoryPrompt,
     resetImagePrompt,
     textPayload,
     storyPayload,
+    themePayload,
+    themeRevisionPayload,
     textConnectionPayload,
     copyToStoryPayload,
     imageConnectionPayload,

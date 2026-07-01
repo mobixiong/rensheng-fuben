@@ -1,4 +1,15 @@
-import { PROJECT_PROGRESS_SAVE_INTERVAL_MS, PROJECT_SAVE_DELAY_MS } from "./constants.js";
+import {
+  COPY_PROMPT_PRESETS,
+  COPY_PROMPT_VERSION,
+  COPY_TO_STORY_PROMPT_VERSION,
+  DEFAULT_COPY_PROMPT_PRESET,
+  DEFAULT_IMAGE_SIZE,
+  DEFAULT_INTRO_TEMPLATE,
+  IMAGE_SIZES,
+  INTRO_TEMPLATES,
+  PROJECT_PROGRESS_SAVE_INTERVAL_MS,
+  PROJECT_SAVE_DELAY_MS,
+} from "./constants.js";
 import { escapeHtml } from "./html.js";
 
 export function createProjectStore({ els, ui, api, storyView, state, settings, setActiveTab }) {
@@ -39,6 +50,9 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       version: 1,
       project_id: state.currentProjectId,
       topic: els.topic.value,
+      theme_brief: els.themeBrief?.value || "",
+      theme_intro: els.themeIntro?.value || "",
+      theme_revision: els.themeRevision?.value || "",
       active_tab: state.activeTab,
       selected_shots: selectedShots,
       selected_shot: selectedShots[0] ?? null,
@@ -47,13 +61,18 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       story: storyView.readOrNull(),
       result_text: els.result.textContent,
       rendered_video: currentRenderedVideoUrl(),
+      copy_prompt_preset: els.copyPromptPreset?.value || DEFAULT_COPY_PROMPT_PRESET,
       copy_prompt: els.copyPrompt.value,
+      copy_prompt_version: COPY_PROMPT_VERSION,
       copy_to_story_prompt: els.copyToStoryPrompt?.value || "",
+      copy_to_story_prompt_version: COPY_TO_STORY_PROMPT_VERSION,
       image_prompt: els.imagePrompt.value,
+      image_size: els.imageSize?.value || DEFAULT_IMAGE_SIZE,
       intro_template: els.introTemplate?.value || "none",
       intro_image_seconds: els.introImageSeconds?.value || "0.3",
       tts_preset: els.ttsPreset?.value || "custom",
       bgm_id: els.bgmSelect?.value || "none",
+      intro_sfx_id: els.introSfxSelect?.value || "default",
     };
   }
 
@@ -117,17 +136,37 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       projectStateData.saved_at ? `${options.fromSave ? "自动保存" : "已恢复"} ${projectStateData.saved_at}` : "已恢复",
     );
     if (typeof projectStateData.topic === "string") els.topic.value = projectStateData.topic;
+    if (els.themeBrief && typeof projectStateData.theme_brief === "string") els.themeBrief.value = projectStateData.theme_brief;
+    if (els.themeIntro && typeof projectStateData.theme_intro === "string") els.themeIntro.value = projectStateData.theme_intro;
+    if (els.themeRevision && typeof projectStateData.theme_revision === "string") els.themeRevision.value = projectStateData.theme_revision;
     if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
+    if (els.themeIntroMirror) els.themeIntroMirror.textContent = els.themeIntro?.value.trim() || "未填写主题介绍";
+    if (els.copyPromptPreset && typeof projectStateData.copy_prompt_preset === "string") {
+      els.copyPromptPreset.value = COPY_PROMPT_PRESETS.includes(projectStateData.copy_prompt_preset)
+        ? projectStateData.copy_prompt_preset
+        : DEFAULT_COPY_PROMPT_PRESET;
+    }
     if (typeof projectStateData.copy_text === "string") els.copyOutput.value = projectStateData.copy_text;
-    if (typeof projectStateData.copy_prompt === "string") els.copyPrompt.value = projectStateData.copy_prompt;
-    if (els.copyToStoryPrompt && typeof projectStateData.copy_to_story_prompt === "string") {
+    if (typeof projectStateData.copy_prompt === "string" && projectStateData.copy_prompt_version === COPY_PROMPT_VERSION) {
+      els.copyPrompt.value = projectStateData.copy_prompt;
+    }
+    if (
+      els.copyToStoryPrompt
+      && typeof projectStateData.copy_to_story_prompt === "string"
+      && projectStateData.copy_to_story_prompt_version === COPY_TO_STORY_PROMPT_VERSION
+    ) {
       els.copyToStoryPrompt.value = projectStateData.copy_to_story_prompt;
     }
     if (typeof projectStateData.image_prompt === "string") els.imagePrompt.value = projectStateData.image_prompt;
+    if (els.imageSize && typeof projectStateData.image_size === "string") {
+      els.imageSize.value = IMAGE_SIZES.includes(projectStateData.image_size)
+        ? projectStateData.image_size
+        : els.imageSize.value;
+    }
     if (els.introTemplate && typeof projectStateData.intro_template === "string") {
-      els.introTemplate.value = ["none", "life_copy_fast_cut", "life_copy_expand_cut", "life_copy_flash_horizontal", "life_copy_flash_vertical", "life_copy_staggered_mask"].includes(projectStateData.intro_template)
+      els.introTemplate.value = INTRO_TEMPLATES.includes(projectStateData.intro_template)
         ? projectStateData.intro_template
-        : "life_copy_fast_cut";
+        : DEFAULT_INTRO_TEMPLATE;
     }
     if (els.introImageSeconds && projectStateData.intro_image_seconds != null) {
       els.introImageSeconds.value = String(projectStateData.intro_image_seconds || "0.3");
@@ -136,6 +175,10 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (els.bgmSelect && typeof projectStateData.bgm_id === "string") {
       const exists = Array.from(els.bgmSelect.options).some((option) => option.value === projectStateData.bgm_id);
       if (exists) els.bgmSelect.value = projectStateData.bgm_id;
+    }
+    if (els.introSfxSelect && typeof projectStateData.intro_sfx_id === "string") {
+      const exists = Array.from(els.introSfxSelect.options).some((option) => option.value === projectStateData.intro_sfx_id);
+      if (exists) els.introSfxSelect.value = projectStateData.intro_sfx_id;
     }
     if (typeof projectStateData.result_text === "string") els.result.textContent = projectStateData.result_text;
     applyRenderedVideo(projectStateData.rendered_video || resultVideoUrl(projectStateData.result_text));
@@ -158,7 +201,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
 
     storyView.updatePromptMeta();
     if (!options.preserveTab) {
-      setActiveTab(["project", "copy", "image", "video", "settings"].includes(projectStateData.active_tab) ? projectStateData.active_tab : "copy");
+      setActiveTab(["project", "theme", "copy", "image", "video", "settings"].includes(projectStateData.active_tab) ? projectStateData.active_tab : "theme");
     }
     state.restoringProject = false;
   }
@@ -220,8 +263,12 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
   function createNew() {
     state.currentProjectId = "";
     state.selectedShots = new Set();
+    if (els.themeBrief) els.themeBrief.value = "";
+    if (els.themeIntro) els.themeIntro.value = "";
+    if (els.themeRevision) els.themeRevision.value = "";
     els.topic.value = "新项目";
     if (els.topicMirror) els.topicMirror.textContent = els.topic.value;
+    if (els.themeIntroMirror) els.themeIntroMirror.textContent = "未填写主题介绍";
     els.copyOutput.value = "";
     els.result.textContent = "{}";
     applyRenderedVideo("");
@@ -229,7 +276,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     storyView.updatePromptMeta();
     ui.setProjectMeta("未保存项目", "自动保存开启");
     if (els.projectPicker) els.projectPicker.value = "";
-    setActiveTab("copy");
+    setActiveTab("theme");
     settings.persist();
     scheduleSave();
   }

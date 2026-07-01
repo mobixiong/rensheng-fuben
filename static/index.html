@@ -27,7 +27,14 @@
             </svg>
             <span>项目管理</span>
           </button>
-          <button class="tab-button active" data-tab="copy" type="button">
+          <button class="tab-button active" data-tab="theme" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="10" cy="10" r="6.5" />
+              <path d="M10 5.5v4l2.7 2.1M6.6 14.2l-1.2 1.6M13.4 14.2l1.2 1.6" />
+            </svg>
+            <span>主题策划</span>
+          </button>
+          <button class="tab-button" data-tab="copy" type="button">
             <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
               <rect x="5" y="3" width="10" height="14" rx="2" />
               <path d="M8 7h4M8 10h4M8 13h3" />
@@ -100,7 +107,60 @@
             <div class="project-grid" id="projectGrid"></div>
           </section>
 
-          <section class="tab-view active" id="tab-copy">
+          <section class="tab-view active" id="tab-theme">
+            <div class="page-head">
+              <div>
+                <h1>主题策划</h1>
+                <p>先确定主题和主题介绍，再进入文案生成</p>
+              </div>
+              <div class="page-actions">
+                <button id="generateTheme" class="primary-pill" type="button">生成主题</button>
+                <button id="goCopyFromTheme" class="secondary-pill" type="button">进入文案生成</button>
+              </div>
+            </div>
+
+            <section class="flow-section active">
+              <div class="flow-section-head">
+                <strong>选题方向</strong>
+                <span class="state-badge editing">编辑中</span>
+              </div>
+              <textarea id="themeBrief" class="prompt-textarea theme-brief-textarea" spellcheck="false" placeholder="输入粗略方向，比如：高三差生、县城宝妈、35岁程序员、外卖骑手、负债创业者"></textarea>
+            </section>
+
+            <section class="flow-section">
+              <div class="flow-section-head">
+                <strong>确定主题</strong>
+                <span class="state-badge done">用于生成文案</span>
+              </div>
+              <div class="theme-editor-grid">
+                <label class="topic-field">
+                  <span>主题</span>
+                  <input id="topic" value="自助餐成瘾者回本哥的人生" />
+                </label>
+                <label class="field">
+                  <span>主题介绍</span>
+                  <textarea id="themeIntro" class="prompt-textarea theme-intro-textarea" spellcheck="false" placeholder="说明这个主题要讲什么人、什么处境、什么核心矛盾和情绪走向"></textarea>
+                  <em id="themeIntroMeta">0 字</em>
+                </label>
+              </div>
+            </section>
+
+            <section class="flow-section">
+              <div class="flow-section-head">
+                <strong>继续调整</strong>
+                <div class="panel-actions">
+                  <button id="rerollTheme" class="secondary-pill" type="button">重抽主题</button>
+                  <button id="reviseTheme" class="primary-pill" type="button">按意见修改</button>
+                </div>
+              </div>
+              <label class="field">
+                <span>修改意见</span>
+                <textarea id="themeRevision" class="prompt-textarea theme-revision-textarea" spellcheck="false" placeholder="例如：更惨一点，但不要太夸张；换成女性视角；突出家庭压力；主题更猎奇一些；结尾更有宿命感"></textarea>
+              </label>
+            </section>
+          </section>
+
+          <section class="tab-view" id="tab-copy">
             <div class="page-head">
               <div>
                 <h1>文案工作台</h1>
@@ -123,7 +183,11 @@
               </div>
               <label class="topic-field">
                 <span>主题</span>
-                <input id="topic" value="自助餐成瘾者回本哥的人生" />
+                <div id="topicMirror" class="readonly-topic">自助餐成瘾者回本哥的人生</div>
+              </label>
+              <label class="topic-field">
+                <span>主题介绍</span>
+                <div id="themeIntroMirror" class="readonly-topic readonly-topic-multiline">未填写主题介绍</div>
               </label>
             </section>
 
@@ -134,7 +198,13 @@
               </div>
               <div class="field-title-row">
                 <span>文案提示词</span>
-                <button id="resetCopyPrompt" class="text-action" type="button">使用默认提示词</button>
+                <div class="panel-actions">
+                  <select id="copyPromptPreset" class="compact-select" aria-label="文案提示词版本">
+                    <option value="reality">现实版</option>
+                    <option value="xianxia">修仙版</option>
+                  </select>
+                  <button id="resetCopyPrompt" class="text-action" type="button">使用当前版本默认提示词</button>
+                </div>
               </div>
               <div class="copy-editor-grid">
                 <div>
@@ -230,47 +300,71 @@
             <div class="page-head">
               <div>
                 <h1>成片合成</h1>
-                <p>根据当前分镜、图片、配音配置渲染竖屏 MP4</p>
+                <p>根据当前分镜、图片、配音配置渲染 MP4</p>
               </div>
               <button id="render" class="primary-pill" type="button">渲染 MP4</button>
             </div>
 
-            <section class="video-control-panel">
-              <div class="field">
-                <span>开头模板</span>
-                <div class="field-action-row">
-                  <select id="introTemplate">
-                    <option value="life_copy_fast_cut" selected>翻页快切模板</option>
-                    <option value="life_copy_expand_cut">展开快切模板</option>
-                    <option value="life_copy_flash_horizontal">横向羽化快闪模板</option>
-                    <option value="life_copy_flash_vertical">纵向羽化快闪模板</option>
-                    <option value="life_copy_staggered_mask">阶梯遮罩接力模板</option>
-                    <option value="none">无模板</option>
-                  </select>
-                  <button id="previewIntroTemplates" class="secondary-pill compact" type="button">点击预览</button>
+            <details class="render-settings-panel" open>
+              <summary>
+                <span>
+                  <strong>渲染配置</strong>
+                  <small>开头模板、配音、BGM、音效</small>
+                </span>
+                <span class="settings-chevron">展开/收起</span>
+              </summary>
+              <div class="video-control-panel">
+                <div class="field">
+                  <span>开头模板</span>
+                  <div class="field-action-row">
+                    <select id="introTemplate">
+                      <option value="life_copy_fast_cut" selected>翻页快切模板</option>
+                      <option value="life_copy_expand_cut">展开快切模板</option>
+                      <option value="life_copy_flash_horizontal">横向羽化快闪模板</option>
+                      <option value="life_copy_flash_vertical">纵向羽化快闪模板</option>
+                      <option value="life_copy_staggered_mask">阶梯遮罩接力模板</option>
+                      <option value="none">无模板</option>
+                    </select>
+                    <button id="previewIntroTemplates" class="secondary-pill compact" type="button">点击预览</button>
+                  </div>
                 </div>
+                <label class="field">
+                  <span>图片秒数</span>
+                  <input id="introImageSeconds" type="number" min="0.08" max="3" step="0.05" value="0.3" />
+                </label>
+                <label class="field">
+                  <span>Edge TTS 配音模板</span>
+                  <select id="ttsPreset">
+                    <option value="male_fast" data-voice="zh-CN-YunxiNeural" data-rate="+12%" selected>男声快节奏</option>
+                    <option value="female_clear" data-voice="zh-CN-XiaoxiaoNeural" data-rate="+8%">女声清晰</option>
+                    <option value="male_steady" data-voice="zh-CN-YunjianNeural" data-rate="+0%">男声稳重</option>
+                    <option value="female_soft" data-voice="zh-CN-XiaoyiNeural" data-rate="+0%">女声柔和</option>
+                    <option value="custom">使用设置里的配音</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>背景 BGM</span>
+                  <select id="bgmSelect">
+                    <option value="none">无 BGM</option>
+                  </select>
+                  <div class="audio-upload-row">
+                    <input id="bgmUploadFile" type="file" accept="audio/*" />
+                    <button id="uploadBgm" class="secondary-pill compact" type="button">上传</button>
+                  </div>
+                </label>
+                <label class="field">
+                  <span>开头音效</span>
+                  <select id="introSfxSelect">
+                    <option value="default">默认齿轮音效</option>
+                    <option value="none">无音效</option>
+                  </select>
+                  <div class="audio-upload-row">
+                    <input id="introSfxUploadFile" type="file" accept="audio/*" />
+                    <button id="uploadIntroSfx" class="secondary-pill compact" type="button">上传</button>
+                  </div>
+                </label>
               </div>
-              <label class="field">
-                <span>图片秒数</span>
-                <input id="introImageSeconds" type="number" min="0.08" max="3" step="0.05" value="0.3" />
-              </label>
-              <label class="field">
-                <span>Edge TTS 配音模板</span>
-                <select id="ttsPreset">
-                  <option value="male_fast" data-voice="zh-CN-YunxiNeural" data-rate="+12%" selected>男声快节奏</option>
-                  <option value="female_clear" data-voice="zh-CN-XiaoxiaoNeural" data-rate="+8%">女声清晰</option>
-                  <option value="male_steady" data-voice="zh-CN-YunjianNeural" data-rate="+0%">男声稳重</option>
-                  <option value="female_soft" data-voice="zh-CN-XiaoyiNeural" data-rate="+0%">女声柔和</option>
-                  <option value="custom">使用设置里的配音</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>背景 BGM</span>
-                <select id="bgmSelect">
-                  <option value="none">无 BGM</option>
-                </select>
-              </label>
-            </section>
+            </details>
 
             <section id="renderProgress" class="render-progress" hidden>
               <div class="render-progress-head">
@@ -480,6 +574,13 @@
         <div id="introPreviewGrid" class="intro-preview-grid">
           <div class="intro-preview-empty">暂无预览</div>
         </div>
+      </section>
+    </div>
+    <div id="imagePreviewModal" class="image-preview-modal" hidden>
+      <div id="imagePreviewBackdrop" class="image-preview-backdrop"></div>
+      <section class="image-preview-sheet" role="dialog" aria-modal="true" aria-label="图片预览">
+        <button id="closeImagePreview" class="image-preview-close" type="button" aria-label="关闭预览">×</button>
+        <img id="imagePreviewFull" alt="分镜图片预览" />
       </section>
     </div>
     <script type="module" src="/static/app.js"></script>
