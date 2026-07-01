@@ -158,13 +158,36 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
     return String(shot?.image_prompt || "");
   }
 
-  function updateShotImagePrompt(index, value) {
+  function setShotImagePromptStatus(index, status, message = "") {
+    const shotIndex = Number(index);
+    if (!Number.isInteger(shotIndex) || shotIndex < 0) return false;
+    const story = read();
+    if (!Array.isArray(story.shots) || !story.shots[shotIndex]) return false;
+    if (status) {
+      story.shots[shotIndex]._image_prompt_status = status;
+      story.shots[shotIndex]._image_prompt_message = message;
+    } else {
+      delete story.shots[shotIndex]._image_prompt_status;
+      delete story.shots[shotIndex]._image_prompt_message;
+    }
+    write(story);
+    return true;
+  }
+
+  function updateShotImagePrompt(index, value, options = {}) {
     const shotIndex = Number(index);
     if (!Number.isInteger(shotIndex) || shotIndex < 0) return false;
     const story = read();
     if (!Array.isArray(story.shots) || !story.shots[shotIndex]) return false;
     story.shots[shotIndex].image_prompt = String(value || "").trim();
     story.shots[shotIndex]._image_prompt_edited_at = Date.now();
+    if (options.status) {
+      story.shots[shotIndex]._image_prompt_status = options.status;
+      story.shots[shotIndex]._image_prompt_message = options.message || "";
+    } else {
+      delete story.shots[shotIndex]._image_prompt_status;
+      delete story.shots[shotIndex]._image_prompt_message;
+    }
     delete story.shots[shotIndex].resolved_image_prompt;
     write(story);
     return true;
@@ -242,6 +265,20 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
       const imagePrompt = String(shot.image_prompt || "");
       const promptPreview = imagePrompt || "双击填写图片提示词";
       const promptTitle = imagePrompt || "双击填写图片提示词";
+      const promptStatus = String(shot._image_prompt_status || "");
+      const promptMessage = String(shot._image_prompt_message || "");
+      const promptStatusLabel = promptStatus === "optimizing"
+        ? "AI 正在优化..."
+        : promptStatus === "optimized"
+          ? "AI 已优化"
+          : promptStatus === "error"
+            ? `AI 优化失败${promptMessage ? `：${promptMessage}` : ""}`
+            : "";
+      const promptStatusHtml = promptStatusLabel
+        ? `<div class="shot-prompt-status ${escapeHtml(promptStatus)}" title="${escapeHtml(promptStatusLabel)}">${escapeHtml(promptStatusLabel)}</div>`
+        : "";
+      const aiDisabled = promptStatus === "optimizing" ? " disabled" : "";
+      const aiLabel = promptStatus === "optimizing" ? "优化中" : "AI";
       return `
         <article class="shot-card${selected}" data-shot="${index}" style="--shot-ratio: ${ratio}">
           <div class="shot-thumb" data-select-shot="${index}" role="button" tabindex="0" aria-pressed="${selected ? "true" : "false"}" aria-label="切换选择镜头 ${index + 1}">
@@ -259,8 +296,10 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
               <div class="shot-prompt-head">
                 <strong>图片提示词</strong>
                 <span>${imagePrompt.length} 字</span>
+                <button class="shot-prompt-ai" type="button" data-ai-shot-prompt="${index}" title="AI 优化图片提示词" aria-label="AI 优化镜头 ${index + 1} 图片提示词"${aiDisabled}>${aiLabel}</button>
               </div>
               <p>${escapeHtml(promptPreview)}</p>
+              ${promptStatusHtml}
             </div>
           </div>
         </article>
@@ -311,6 +350,7 @@ export function createStoryView({ els, getSelectedShots, setSelectedShots, getAc
     withImageSize,
     applyImageSize,
     getShotImagePrompt,
+    setShotImagePromptStatus,
     updateShotImagePrompt,
   };
 }

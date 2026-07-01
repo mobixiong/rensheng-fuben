@@ -64,6 +64,16 @@ class ImageConnectionRequest(BaseModel):
     size: str = "9:16"
 
 
+class ImproveImagePromptRequest(BaseModel):
+    story: dict[str, Any]
+    shot_index: int = Field(ge=0)
+    provider: str = "openai"
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    temperature: float = 0.4
+
+
 class RenderRequest(BaseModel):
     story: dict[str, Any]
     voice: str = "zh-CN-YunxiNeural"

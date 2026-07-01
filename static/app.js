@@ -219,6 +219,12 @@ function bindEvents() {
     const openProjectButton = event.target.closest("[data-open-project]");
     if (openProjectButton) projectStore.activate(openProjectButton.dataset.openProject);
 
+    const aiPromptButton = event.target.closest("[data-ai-shot-prompt]");
+    if (aiPromptButton) {
+      workflow.improveShotImagePrompt(Number(aiPromptButton.dataset.aiShotPrompt));
+      return;
+    }
+
     const redrawButton = event.target.closest("[data-redraw-shot]");
     if (redrawButton) {
       workflow.redrawShot(Number(redrawButton.dataset.redrawShot));
@@ -236,6 +242,7 @@ function bindEvents() {
   });
 
   document.addEventListener("dblclick", (event) => {
+    if (event.target.closest("[data-ai-shot-prompt]")) return;
     const promptNode = event.target.closest("[data-edit-shot-prompt]");
     if (promptNode) {
       event.preventDefault();

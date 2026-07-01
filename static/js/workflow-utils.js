@@ -22,6 +22,11 @@ export function mergeShotImageResult(targetStory, sourceStory, index) {
   targetShot._image_version = Date.now();
   targetShot._image_status = IMAGE_STATUS.done;
   delete targetShot._image_error;
+  delete targetShot._image_error_code;
+  delete targetShot._image_error_category;
+  delete targetShot._image_attempt;
+  delete targetShot._image_status_started_at;
+  delete targetShot._image_status_updated_at;
   if (sourceStory.project_id) targetStory.project_id = sourceStory.project_id;
   return targetStory;
 }

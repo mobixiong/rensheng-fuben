@@ -1182,6 +1182,31 @@ textarea {
   font-weight: 650;
 }
 
+.shot-prompt-ai {
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--color-primary-muted);
+  border-radius: 999px;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.shot-prompt-ai:hover {
+  border-color: var(--color-primary);
+  background: #fff;
+}
+
+.shot-prompt-ai:disabled {
+  border-color: var(--border-secondary);
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
 .shot-prompt p {
   display: -webkit-box;
   min-height: 34px;
@@ -1192,6 +1217,43 @@ textarea {
   line-height: 1.45;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.shot-prompt-status {
+  margin-top: 8px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shot-prompt-status.optimizing {
+  color: #b76a00;
+}
+
+.shot-prompt-status.optimized {
+  color: var(--state-success);
+}
+
+.shot-prompt-status.error {
+  color: var(--state-error);
+}
+
+.shot-prompt:has(.shot-prompt-status.optimizing) {
+  border-color: rgba(245, 166, 35, 0.5);
+  background: rgba(245, 166, 35, 0.08);
+}
+
+.shot-prompt:has(.shot-prompt-status.optimized) {
+  border-color: rgba(52, 168, 83, 0.32);
+  background: rgba(52, 168, 83, 0.07);
+}
+
+.shot-prompt:has(.shot-prompt-status.error) {
+  border-color: rgba(234, 67, 53, 0.38);
+  background: rgba(234, 67, 53, 0.07);
 }
 
 .shot-prompt-editor {

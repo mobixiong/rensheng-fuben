@@ -10,6 +10,7 @@ from .llm_adapter import (
     generate_story_from_copy,
     generate_text,
     generate_topic_plan,
+    improve_image_prompt,
     revise_topic_plan,
     test_text_connection,
 )
@@ -19,6 +20,7 @@ from .schemas import (
     ImageConnectionRequest,
     ImageGenerateRequest,
     ImageRegenerateRequest,
+    ImproveImagePromptRequest,
     TextConnectionRequest,
     ThemePlanRequest,
     ThemeReviseRequest,
@@ -84,6 +86,14 @@ def settings_test_image(req: ImageConnectionRequest) -> dict[str, Any]:
 def text_copy_to_story(req: CopyToStoryRequest) -> dict[str, Any]:
     try:
         return generate_story_from_copy(req.topic, req.copy_text, LLMConfig.from_payload(req.model_dump()), req.system_prompt, req.topic_intro)
+    except LLMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/text/improve-image-prompt")
+def text_improve_image_prompt(req: ImproveImagePromptRequest) -> dict[str, Any]:
+    try:
+        return improve_image_prompt(req.story, req.shot_index, LLMConfig.from_payload(req.model_dump()))
     except LLMError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

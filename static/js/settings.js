@@ -339,6 +339,18 @@ export function createSettings({ els }) {
     };
   }
 
+  function improveImagePromptPayload(story, shotIndex) {
+    return {
+      story,
+      shot_index: shotIndex,
+      provider: els.textProvider.value,
+      base_url: els.baseUrl.value.trim(),
+      model: els.model.value.trim(),
+      api_key: els.apiKey.value.trim(),
+      temperature: 0.4,
+    };
+  }
+
   return {
     applyTextProviderDefaults,
     persist,
@@ -356,6 +368,7 @@ export function createSettings({ els }) {
     copyToStoryPayload,
     imageConnectionPayload,
     imagePayload,
+    improveImagePromptPayload,
     applyTtsProviderDefaults,
     updateTtsProviderVisibility,
   };

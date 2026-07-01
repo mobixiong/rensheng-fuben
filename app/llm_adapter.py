@@ -231,6 +231,40 @@ def generate_story_from_copy(
         raise LLMError(f"LLM did not return valid storyboard JSON: {content[:1000]}") from exc
 
 
+def improve_image_prompt(story: dict[str, Any], shot_index: int, cfg: LLMConfig) -> dict[str, Any]:
+    shots = story.get("shots") or []
+    if not isinstance(shots, list) or shot_index < 0 or shot_index >= len(shots):
+        raise LLMError("shot_index out of range")
+    shot = shots[shot_index] or {}
+    system_prompt = (
+        "你是短视频分镜生图提示词优化师。"
+        "请只输出一条中文图片提示词，不要输出 JSON、解释、编号或 Markdown。"
+        "目标是让生图更稳定、更贴合口播和画面描述，同时降低被安全策略拦截的风险。"
+        "提示词应包含主体、场景、构图、光线、情绪、风格；不要包含可读文字、Logo、水印、血腥、肢解、尸体细节、露骨暴力或色情。"
+        "如果原描述有暴力/血腥/恐怖内容，请改写成隐喻化、非血腥、镜头语言化的表达。"
+        "长度控制在 40 到 90 个中文字符。"
+    )
+    user_content = "\n".join([
+        f"故事标题：{story.get('title') or ''}",
+        f"整体风格：{story.get('style_preset') or ''}",
+        f"镜头序号：{shot_index + 1}",
+        f"口播：{shot.get('voiceover') or ''}",
+        f"画面描述：{shot.get('visual') or ''}",
+        f"原图片提示词：{shot.get('image_prompt') or ''}",
+        "请输出优化后的图片提示词：",
+    ])
+    content = _provider_text(system_prompt, user_content, replace(cfg, temperature=cfg.temperature or 0.4))
+    prompt = content.strip().strip("`").strip()
+    for prefix in ("图片提示词：", "优化后的图片提示词：", "提示词："):
+        if prompt.startswith(prefix):
+            prompt = prompt[len(prefix):].strip()
+    if "\n" in prompt:
+        prompt = "，".join(part.strip(" -\t") for part in prompt.splitlines() if part.strip())
+    if not prompt:
+        raise LLMError("LLM returned empty image prompt")
+    return {"image_prompt": prompt[:500]}
+
+
 def test_text_connection(cfg: LLMConfig) -> dict[str, Any]:
     content = _provider_text("你是接口连通性测试助手。只回复 OK。", "请回复 OK", replace(cfg, temperature=0))
     return {

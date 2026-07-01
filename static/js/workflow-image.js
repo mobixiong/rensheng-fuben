@@ -41,8 +41,11 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     let lastError = null;
     for (let attempt = 0; attempt <= IMAGE_RETRY_LIMIT; attempt += 1) {
       if (story.shots?.[index]) {
+        const now = Date.now();
         story.shots[index]._image_status = attempt === 0 ? initialStatus : IMAGE_STATUS.retrying;
         story.shots[index]._image_attempt = attempt + 1;
+        story.shots[index]._image_status_started_at = story.shots[index]._image_status_started_at || now;
+        story.shots[index]._image_status_updated_at = now;
         delete story.shots[index]._image_error;
         delete story.shots[index]._image_error_code;
         delete story.shots[index]._image_error_category;
@@ -155,6 +158,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
 
   async function redrawShot(index) {
     settings.persist();
+    ui.setBusy(true);
     ui.setStatus("重抽中", "busy");
     state.imageGenerationActive = true;
     clearTimeout(state.saveTimer);
@@ -164,6 +168,18 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       if (!story.project_id) {
         story = { ...story, project_id: projectStore.mediaProjectId() || createImageProjectId() };
         storyView.write(story);
+      }
+      if (story.shots?.[index]) {
+        const now = Date.now();
+        story.shots[index]._image_status = IMAGE_STATUS.redrawing;
+        story.shots[index]._image_attempt = 1;
+        story.shots[index]._image_status_started_at = now;
+        story.shots[index]._image_status_updated_at = now;
+        delete story.shots[index]._image_error;
+        delete story.shots[index]._image_error_code;
+        delete story.shots[index]._image_error_category;
+        storyView.write(story);
+        await projectStore.queueSave({ applyState: false, refreshProjects: false });
       }
       const data = await regenerateShotWithRetry(story, index, { initialStatus: IMAGE_STATUS.redrawing });
       story = mergeShotImageResult(story, data, index);
@@ -192,6 +208,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       await state.projectSaveQueue.catch(() => null);
       state.imageGenerationActive = false;
       await projectStore.loadList().catch(() => null);
+      ui.setBusy(false);
     }
   }
 
@@ -219,6 +236,8 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
         shots: shots.map((shot, index) => ({
           ...shot,
           _image_status: redrawSet.has(index) ? IMAGE_STATUS.redrawing : shot._image_status,
+          _image_status_started_at: redrawSet.has(index) ? Date.now() : shot._image_status_started_at,
+          _image_status_updated_at: redrawSet.has(index) ? Date.now() : shot._image_status_updated_at,
         })),
       };
       storyView.write(story);
@@ -269,9 +288,38 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     }
   }
 
+  async function improveShotImagePrompt(index) {
+    settings.persist();
+    const shotIndex = Number(index);
+    if (!Number.isInteger(shotIndex) || shotIndex < 0) return;
+    storyView.setShotImagePromptStatus(shotIndex, "optimizing", "AI 正在根据口播和画面描述优化图片提示词");
+    await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
+    ui.setStatus("优化提示词", "busy");
+    try {
+      const story = storyView.read();
+      const data = await api.postJson("/api/text/improve-image-prompt", settings.improveImagePromptPayload(story, shotIndex));
+      const nextPrompt = String(data.image_prompt || "").trim();
+      if (!nextPrompt) throw new Error("AI 没有返回图片提示词");
+      storyView.updateShotImagePrompt(shotIndex, nextPrompt, { status: "optimized", message: "已用 AI 重写图片提示词" });
+      await projectStore.queueSave({ applyState: false, refreshProjects: false });
+      els.result.textContent = JSON.stringify({
+        "图片提示词": "已优化",
+        "镜头": shotIndex + 1,
+        "提示词": nextPrompt,
+      }, null, 2);
+      ui.setStatus("就绪");
+    } catch (err) {
+      storyView.setShotImagePromptStatus(shotIndex, "error", String(err.message || err));
+      await projectStore.queueSave({ applyState: false, refreshProjects: false });
+      ui.setStatus("出错", "error");
+      els.result.textContent = String(err.message || err);
+    }
+  }
+
   return {
     generateImagesParallel,
     redrawShot,
     redrawSelectedShots,
+    improveShotImagePrompt,
   };
 }
