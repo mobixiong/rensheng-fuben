@@ -24,7 +24,7 @@ from .intro_templates import (
 )
 from .paths import WORKSPACE
 from .render_constants import H, W, render_size
-from .subtitle_renderer import write_subtitles
+from .subtitle_renderer import SUBTITLE_RENDER_VERSION, write_subtitles
 from .tts_adapter import TtsConfig, synthesize_tts
 
 
@@ -409,6 +409,15 @@ def normalize_story(story: dict[str, Any]) -> dict[str, Any]:
         voiceover = str(shot.get("voiceover") or shot.get("narration") or shot.get("text") or "").strip()
         if not voiceover:
             raise RenderError(f"shot {i} missing voiceover")
+        subtitle_chunks = shot.get("subtitle_chunks")
+        if isinstance(subtitle_chunks, list):
+            subtitle_chunks = [
+                str(item.get("text") if isinstance(item, dict) else item).strip()
+                for item in subtitle_chunks
+                if str(item.get("text") if isinstance(item, dict) else item).strip()
+            ]
+        else:
+            subtitle_chunks = []
         normalized.append({
             "id": int(shot.get("id") or i),
             "voiceover": voiceover,
@@ -417,6 +426,7 @@ def normalize_story(story: dict[str, Any]) -> dict[str, Any]:
             "image_path": str(shot.get("image_path") or "").strip(),
             "image_prompt": str(shot.get("image_prompt") or ""),
             "video_prompt": str(shot.get("video_prompt") or ""),
+            "subtitle_chunks": subtitle_chunks,
         })
     return {"title": title, "style_preset": str(story.get("style_preset") or DEFAULT_STYLE), "shots": normalized}
 
@@ -648,7 +658,16 @@ def render_story(
     if shots:
         shots[-1]["end"] = total
     subtitle_signature = _sha256_json({
-        "shots": [{"voiceover": shot["voiceover"], "start": shot["start"], "end": shot["end"]} for shot in shots],
+        "subtitle_render_version": SUBTITLE_RENDER_VERSION,
+        "shots": [
+            {
+                "voiceover": shot["voiceover"],
+                "subtitle_chunks": shot.get("subtitle_chunks") or [],
+                "start": shot["start"],
+                "end": shot["end"],
+            }
+            for shot in shots
+        ],
         "size": canvas_size,
     })
     subtitle_entry = ((manifest.get("stages") or {}).get("subtitle") or {}).get("ass") or {}

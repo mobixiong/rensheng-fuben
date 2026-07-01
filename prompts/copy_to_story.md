@@ -16,6 +16,7 @@
 - 每个 shot 只表达一个明确画面、动作、情绪或处境。
 - voiceover 必须来自原口播文案，可以轻微压缩，但不要改写成另一种文风。
 - voiceover 内不要写换行符；字幕渲染会按逗号、句号等自然停顿断句，过短短句会自动合并。
+- 如果你能从口播里判断更自然的字幕切分，请额外输出 subtitle_chunks 数组；每个元素是一条字幕块文本，优先按口播语气、停顿和语义断开，不要按视频宽度拆。
 - visual 用中文描述画面，要具体到人物、地点、道具、动作、情绪和环境。
 - punch 用 2 到 6 个中文概括画面核心。
 - image_prompt 用中文补充生图要点，重点写场景、主体、道具、构图，不要要求生成可读文字。
@@ -38,7 +39,8 @@
       "visual": "string",
       "punch": "string",
       "image_prompt": "string",
-      "video_prompt": "string"
+      "video_prompt": "string",
+      "subtitle_chunks": ["string"]
     }
   ]
 }

@@ -4,8 +4,10 @@ from typing import Any
 from .render_constants import H, W
 
 SUBTITLE_FONT_SIZE = 54
+SUBTITLE_RENDER_VERSION = 3
 SUBTITLE_SPLIT_MARKS = "，。！？；,.!?;"
 SUBTITLE_MIN_CHARS = 10
+SUBTITLE_CLOSING_QUOTES = "”’」』）》】"
 
 
 def _srt_ts(sec: float) -> str:
@@ -56,6 +58,20 @@ def _merge_short_chunks(chunks: list[str]) -> list[str]:
     return merged or chunks
 
 
+def _normalize_chunk_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    chunks: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            text = str(item.get("text") or item.get("subtitle") or "").strip()
+        else:
+            text = str(item or "").strip()
+        if text:
+            chunks.append(text)
+    return _merge_short_chunks(chunks) if chunks else []
+
+
 def _subtitle_chunks(text: str) -> list[str]:
     clean = " ".join(str(text or "").split())
     if not clean:
@@ -63,11 +79,17 @@ def _subtitle_chunks(text: str) -> list[str]:
 
     chunks: list[str] = []
     current = ""
-    for ch in clean:
+    index = 0
+    while index < len(clean):
+        ch = clean[index]
         current += ch
         if ch in SUBTITLE_SPLIT_MARKS:
+            while index + 1 < len(clean) and clean[index + 1] in SUBTITLE_CLOSING_QUOTES:
+                index += 1
+                current += clean[index]
             chunks.append(current.strip())
             current = ""
+        index += 1
     if current.strip():
         chunks.append(current.strip())
     return _merge_short_chunks([chunk for chunk in chunks if chunk] or [clean])
@@ -79,7 +101,7 @@ def _subtitle_events(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
         start = float(shot["start"])
         end = float(shot["end"])
         duration = max(0.1, end - start)
-        chunks = _subtitle_chunks(str(shot.get("voiceover", "")))
+        chunks = _normalize_chunk_list(shot.get("subtitle_chunks")) or _subtitle_chunks(str(shot.get("voiceover", "")))
         weights = [max(1, len(chunk)) for chunk in chunks]
         total_weight = max(1, sum(weights))
         cursor = start
