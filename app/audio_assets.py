@@ -7,6 +7,7 @@ from .paths import ROOT, WORKSPACE
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 BGM_DIRS = [ROOT / "assets" / "bgm", WORKSPACE / "bgm"]
 SFX_DIR = ROOT / "assets" / "sfx"
+WORKSPACE_SFX_DIR = WORKSPACE / "sfx"
 DEFAULT_REVEAL_SFX = SFX_DIR / "gear.mp3"
 
 
@@ -29,6 +30,26 @@ def list_bgm_options() -> list[dict[str, str]]:
                 "name": path.stem,
                 "filename": path.name,
             })
+    return options
+
+
+def list_intro_sfx_options() -> list[dict[str, str]]:
+    options: list[dict[str, str]] = []
+    if DEFAULT_REVEAL_SFX.exists():
+        options.append({
+            "id": "default",
+            "name": DEFAULT_REVEAL_SFX.stem,
+            "filename": DEFAULT_REVEAL_SFX.name,
+        })
+    WORKSPACE_SFX_DIR.mkdir(parents=True, exist_ok=True)
+    for path in sorted(WORKSPACE_SFX_DIR.iterdir()):
+        if not path.is_file() or path.suffix.lower() not in AUDIO_SUFFIXES:
+            continue
+        options.append({
+            "id": f"workspace/sfx/{path.name}",
+            "name": path.stem,
+            "filename": path.name,
+        })
     return options
 
 
@@ -56,7 +77,28 @@ def resolve_bgm_path(value: str | None) -> Path | None:
     raise RenderError(f"BGM not found: {raw}")
 
 
-def default_reveal_sfx_path(intro_template: str) -> Path | None:
-    if intro_template != "life_copy_reveal":
+def resolve_intro_sfx_path(value: str | None, intro_template: str) -> Path | None:
+    if intro_template == "none":
         return None
-    return DEFAULT_REVEAL_SFX if DEFAULT_REVEAL_SFX.exists() else None
+    raw = str(value or "default").strip()
+    if not raw or raw == "none":
+        return None
+    if raw == "default":
+        return DEFAULT_REVEAL_SFX if DEFAULT_REVEAL_SFX.exists() else None
+    normalized = raw.replace("\\", "/").strip("/")
+    if normalized.startswith("workspace/sfx/"):
+        candidate = (WORKSPACE / normalized.removeprefix("workspace/")).resolve()
+        try:
+            candidate.relative_to(WORKSPACE_SFX_DIR.resolve())
+        except ValueError as exc:
+            raise RenderError("Invalid intro sfx path") from exc
+        if candidate.exists() and candidate.suffix.lower() in AUDIO_SUFFIXES:
+            return candidate
+    candidate = (SFX_DIR / normalized).resolve()
+    try:
+        candidate.relative_to(SFX_DIR.resolve())
+    except ValueError as exc:
+        raise RenderError("Invalid intro sfx path") from exc
+    if candidate.exists() and candidate.suffix.lower() in AUDIO_SUFFIXES:
+        return candidate
+    raise RenderError(f"Intro sfx not found: {raw}")

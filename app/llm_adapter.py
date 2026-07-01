@@ -10,6 +10,7 @@ from .paths import ROOT
 
 DEFAULT_PROMPT_PATH = ROOT / "prompts" / "story_shots.md"
 COPY_TO_STORY_PROMPT_PATH = ROOT / "prompts" / "copy_to_story.md"
+THEME_PROMPT_PATH = ROOT / "prompts" / "theme_plan.md"
 GEMINI_WEB2API_BASE_URL = "http://127.0.0.1:8081/v1"
 GEMINI_WEB2API_MODEL = "gemini-3.5-flash-thinking"
 
@@ -43,6 +44,10 @@ def load_default_prompt() -> str:
 
 def load_copy_to_story_prompt() -> str:
     return COPY_TO_STORY_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def load_theme_prompt() -> str:
+    return THEME_PROMPT_PATH.read_text(encoding="utf-8")
 
 
 def _endpoint(base_url: str) -> str:
@@ -142,27 +147,83 @@ def _fill_topic_placeholders(prompt: str, topic: str) -> str:
     return prompt
 
 
-def generate_text(topic: str, cfg: LLMConfig, system_prompt: str | None = None) -> str:
+def generate_topic_plan(brief: str, cfg: LLMConfig, system_prompt: str | None = None) -> dict[str, Any]:
+    prompt = system_prompt or load_theme_prompt()
+    content = _provider_text(prompt, f"用户给出的选题方向：{brief.strip()}", cfg)
+    try:
+        data = _extract_json(content)
+    except Exception as exc:
+        raise LLMError(f"LLM did not return valid theme JSON: {content[:1000]}") from exc
+    topic = str(data.get("topic") or "").strip()
+    intro = str(data.get("intro") or data.get("description") or "").strip()
+    if not topic or not intro:
+        raise LLMError(f"Theme JSON missing topic/intro: {content[:1000]}")
+    return {"topic": topic, "intro": intro}
+
+
+def revise_topic_plan(
+    brief: str,
+    topic: str,
+    intro: str,
+    instruction: str,
+    cfg: LLMConfig,
+    system_prompt: str | None = None,
+) -> dict[str, Any]:
+    prompt = system_prompt or load_theme_prompt()
+    user_content = "\n\n".join([
+        "请在已有主题方案上继续修改，只输出修改后的严格 JSON。",
+        f"原始选题方向：{brief.strip()}",
+        f"当前主题：{topic.strip()}",
+        f"当前主题介绍：{intro.strip()}",
+        f"用户修改意见：{instruction.strip()}",
+    ])
+    content = _provider_text(prompt, user_content, cfg)
+    try:
+        data = _extract_json(content)
+    except Exception as exc:
+        raise LLMError(f"LLM did not return valid revised theme JSON: {content[:1000]}") from exc
+    revised_topic = str(data.get("topic") or "").strip()
+    revised_intro = str(data.get("intro") or data.get("description") or "").strip()
+    if not revised_topic or not revised_intro:
+        raise LLMError(f"Revised theme JSON missing topic/intro: {content[:1000]}")
+    return {"topic": revised_topic, "intro": revised_intro}
+
+
+def generate_text(topic: str, cfg: LLMConfig, system_prompt: str | None = None, topic_intro: str = "") -> str:
     prompt = _fill_topic_placeholders(system_prompt or load_default_prompt(), topic)
-    content = _provider_text(prompt, f"\u4e3b\u9898\uff1a{topic}", cfg)
+    user_content = f"主题：{topic}"
+    if topic_intro.strip():
+        user_content = "\n\n".join([user_content, f"主题介绍：{topic_intro.strip()}"])
+    content = _provider_text(prompt, user_content, cfg)
     return content.strip()
 
 
-def generate_story(topic: str, cfg: LLMConfig, system_prompt: str | None = None) -> dict[str, Any]:
-    content = generate_text(topic, cfg, system_prompt)
+def generate_story(topic: str, cfg: LLMConfig, system_prompt: str | None = None, topic_intro: str = "") -> dict[str, Any]:
+    content = generate_text(topic, cfg, system_prompt, topic_intro)
     try:
         return _extract_json(content)
     except Exception as exc:
         raise LLMError(f"LLM did not return valid JSON: {content[:1000]}") from exc
 
 
-def generate_story_from_copy(topic: str, copy_text: str, cfg: LLMConfig, system_prompt: str | None = None) -> dict[str, Any]:
+def generate_story_from_copy(
+    topic: str,
+    copy_text: str,
+    cfg: LLMConfig,
+    system_prompt: str | None = None,
+    topic_intro: str = "",
+) -> dict[str, Any]:
     prompt = system_prompt or load_copy_to_story_prompt()
-    user_content = "\n\n".join([
+    user_parts = [
         f"主题：{topic}",
+    ]
+    if topic_intro.strip():
+        user_parts.append(f"主题介绍：{topic_intro.strip()}")
+    user_parts.extend([
         "完整口播文案：",
         copy_text.strip(),
     ])
+    user_content = "\n\n".join(user_parts)
     content = _provider_text(prompt, user_content, cfg)
     try:
         return _extract_json(content)

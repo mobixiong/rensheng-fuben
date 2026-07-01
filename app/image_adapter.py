@@ -16,7 +16,92 @@ IMAGE_PROMPT_PATH = ROOT / "prompts" / "image_style.md"
 
 
 class ImageError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "",
+        category: str = "unknown",
+        status_code: int | None = None,
+        suggestion: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.category = category
+        self.status_code = status_code
+        self.suggestion = suggestion
+
+    def to_detail(self) -> dict[str, Any]:
+        detail = {
+            "message": self.message,
+            "category": self.category,
+            "code": self.code,
+        }
+        if self.status_code:
+            detail["status_code"] = self.status_code
+        if self.suggestion:
+            detail["suggestion"] = self.suggestion
+        return detail
+
+
+PROMPT_POLICY_SUGGESTION = "请修改该镜头的口播、画面描述或图片提示词，降低暴力、血腥、敏感等表达后重试。"
+
+
+def _extract_provider_error(raw: str) -> tuple[str, str, str]:
+    message = raw.strip()
+    code = ""
+    error_type = ""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return message, code, error_type
+    if isinstance(data, dict):
+        error = data.get("error")
+        if isinstance(error, dict):
+            message = str(error.get("message") or message)
+            code = str(error.get("code") or "")
+            error_type = str(error.get("type") or "")
+        else:
+            message = str(data.get("message") or data.get("detail") or message)
+            code = str(data.get("code") or "")
+            error_type = str(data.get("type") or "")
+    return message.strip(), code.strip(), error_type.strip()
+
+
+def _is_prompt_policy_error(message: str, code: str = "", error_type: str = "") -> bool:
+    text = " ".join([message or "", code or "", error_type or ""]).lower()
+    english_markers = (
+        "content_policy_violation",
+        "policy_violation",
+        "content policy",
+        "safety policy",
+        "safety system",
+        "moderation",
+        "blocked",
+        "unsafe",
+        "sensitive",
+    )
+    chinese_markers = ("违反", "不合规", "防护限制", "内容安全", "安全策略", "敏感", "违规", "审核")
+    return any(marker in text for marker in english_markers) or any(marker in message for marker in chinese_markers)
+
+
+def classify_image_http_error(status_code: int, raw_detail: str) -> ImageError:
+    message, code, error_type = _extract_provider_error(raw_detail)
+    if _is_prompt_policy_error(message, code, error_type):
+        return ImageError(
+            f"提示词被内容安全策略拦截：{message}",
+            code=code or f"http_{status_code}",
+            category="prompt_policy",
+            status_code=status_code,
+            suggestion=PROMPT_POLICY_SUGGESTION,
+        )
+    return ImageError(
+        f"Image HTTP {status_code}: {message or raw_detail}",
+        code=code or f"http_{status_code}",
+        category="request",
+        status_code=status_code,
+    )
 
 
 @dataclass
@@ -42,8 +127,23 @@ def load_image_prompt() -> str:
     return IMAGE_PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def build_shot_image_prompt(story: dict[str, Any], shot: dict[str, Any], fixed_prompt: str | None = None) -> str:
+def _image_ratio_label(size: str) -> str:
+    value = str(size or "").strip()
+    if value in {"16:9", "16 / 9"}:
+        return "横屏16:9"
+    if value in {"1:1", "1 / 1"}:
+        return "正方形1:1"
+    return "竖屏9:16"
+
+
+def build_shot_image_prompt(
+    story: dict[str, Any],
+    shot: dict[str, Any],
+    fixed_prompt: str | None = None,
+    size: str = "9:16",
+) -> str:
     base = fixed_prompt or load_image_prompt()
+    ratio_label = _image_ratio_label(size or shot.get("image_size") or story.get("image_size") or "9:16")
     return "\n\n".join([
         base,
         "当前故事整体风格补充：",
@@ -52,7 +152,7 @@ def build_shot_image_prompt(story: dict[str, Any], shot: dict[str, Any], fixed_p
         f"口播：{shot.get('voiceover', '')}",
         f"画面描述：{shot.get('visual', '')}",
         f"补充提示词：{shot.get('image_prompt', '')}",
-        "请生成一张竖屏9:16分镜图。画面中不要出现可读文字、字幕、Logo、水印、二维码、品牌名或界面文字。",
+        f"请生成一张{ratio_label}分镜图。画面中不要出现可读文字、字幕、Logo、水印、二维码、品牌名或界面文字。",
     ])
 
 
@@ -105,9 +205,9 @@ def _openai_image_response(prompt: str, cfg: ImageConfig, timeout: int = 180) ->
             return json.loads(resp.read().decode("utf-8", errors="ignore"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")[:1000]
-        raise ImageError(f"Image HTTP {exc.code}: {detail}") from exc
+        raise classify_image_http_error(exc.code, detail) from exc
     except Exception as exc:
-        raise ImageError(f"Image request failed: {exc}") from exc
+        raise ImageError(f"Image request failed: {exc}", category="network") from exc
 
 
 def _openai_image(prompt: str, cfg: ImageConfig, out_path: Path) -> None:
@@ -142,9 +242,11 @@ def generate_story_images(story: dict[str, Any], cfg: ImageConfig, fixed_prompt:
 
     updated = json.loads(json.dumps(story, ensure_ascii=False))
     updated.setdefault("project_id", project_id)
+    updated["image_size"] = cfg.size
     updated_shots = updated["shots"]
     for idx, shot in enumerate(updated_shots, 1):
-        prompt = build_shot_image_prompt(updated, shot, fixed_prompt)
+        shot["image_size"] = cfg.size
+        prompt = build_shot_image_prompt(updated, shot, fixed_prompt, cfg.size)
         out_path = image_dir / f"shot_{idx:02d}.png"
         generate_image(prompt, cfg, out_path)
         shot["image_path"] = str(out_path.resolve())
@@ -167,8 +269,10 @@ def generate_one_story_image(story: dict[str, Any], shot_index: int, cfg: ImageC
 
     updated = json.loads(json.dumps(story, ensure_ascii=False))
     updated["project_id"] = project_id
+    updated["image_size"] = cfg.size
     shot = updated["shots"][shot_index]
-    prompt = build_shot_image_prompt(updated, shot, fixed_prompt)
+    shot["image_size"] = cfg.size
+    prompt = build_shot_image_prompt(updated, shot, fixed_prompt, cfg.size)
     out_path = image_dir / f"shot_{shot_index + 1:02d}.png"
     generate_image(prompt, cfg, out_path)
     shot["image_path"] = str(out_path.resolve())

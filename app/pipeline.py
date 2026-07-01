@@ -1,7 +1,6 @@
 import asyncio
 import json
 import shutil
-import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -9,43 +8,22 @@ from typing import Any, Callable
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from .audio_assets import default_reveal_sfx_path, resolve_bgm_path
+from .audio_assets import resolve_bgm_path, resolve_intro_sfx_path
 from .errors import RenderError
+from .ffmpeg_utils import ffmpeg_path_arg, media_duration, run_command
+from .intro_templates import (
+    FAST_CUT_IMAGE_SECONDS,
+    FAST_CUT_MAX_IMAGES,
+    INTRO_PREVIEW_TEMPLATES,
+    INTRO_TEMPLATES,
+    normalize_intro_image_seconds,
+    render_intro_template,
+    render_still_clip,
+)
 from .paths import WORKSPACE
+from .render_constants import H, W
+from .subtitle_renderer import write_subtitles
 from .tts_adapter import TtsConfig, synthesize_tts
-
-W, H = 1080, 1920
-FPS = 30
-FAST_CUT_TEMPLATE = "life_copy_fast_cut"
-EXPAND_CUT_TEMPLATE = "life_copy_expand_cut"
-FLASH_HORIZONTAL_TEMPLATE = "life_copy_flash_horizontal"
-FLASH_VERTICAL_TEMPLATE = "life_copy_flash_vertical"
-STAGGERED_MASK_TEMPLATE = "life_copy_staggered_mask"
-INTRO_TEMPLATES = {
-    "none",
-    FAST_CUT_TEMPLATE,
-    EXPAND_CUT_TEMPLATE,
-    FLASH_HORIZONTAL_TEMPLATE,
-    FLASH_VERTICAL_TEMPLATE,
-    STAGGERED_MASK_TEMPLATE,
-}
-FAST_CUT_MAX_IMAGES = 5
-FAST_CUT_IMAGE_SECONDS = 0.3
-FAST_CUT_TRANSITION_SECONDS = 0.3
-FAST_CUT_MASK_FEATHER = 260
-EXPAND_CUT_INITIAL_HALF_HEIGHT = 90
-EXPAND_CUT_MASK_FEATHER = 180
-FLASH_CUT_MASK_FEATHER = 220
-STAGGERED_MASK_FEATHER = 42
-STAGGERED_SWEEP_MULTIPLIER = 2.0
-INTRO_PREVIEW_TEMPLATES = [
-    FAST_CUT_TEMPLATE,
-    EXPAND_CUT_TEMPLATE,
-    FLASH_HORIZONTAL_TEMPLATE,
-    FLASH_VERTICAL_TEMPLATE,
-    STAGGERED_MASK_TEMPLATE,
-    "none",
-]
 
 
 DEFAULT_STYLE = (
@@ -53,64 +31,6 @@ DEFAULT_STYLE = (
     "2D平面动画，高对比阴影，高饱和色调，少量关键词花字。主角是无脸圆形白色光头角色，"
     "极简点状眼睛，夸张眉毛，表情包风格，穿连帽衫或制服，Q版但不过度幼稚。"
 )
-
-
-def _run(cmd: list[str]) -> None:
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="ignore")
-    if proc.returncode != 0:
-        raise RenderError(f"Command failed: {' '.join(cmd)}\n{proc.stderr[-3000:]}")
-
-
-def _safe_unlink(path: Path) -> None:
-    for _ in range(4):
-        try:
-            if path.exists():
-                path.unlink()
-            return
-        except OSError:
-            time.sleep(0.15)
-    try:
-        if path.exists():
-            path.unlink()
-    except OSError:
-        pass
-
-
-def _safe_rmtree(path: Path) -> None:
-    for _ in range(4):
-        try:
-            if path.exists():
-                shutil.rmtree(path)
-            return
-        except OSError:
-            time.sleep(0.15)
-    shutil.rmtree(path, ignore_errors=True)
-
-
-def _intro_image_seconds(value: float | int | str | None) -> float:
-    try:
-        seconds = float(value)
-    except (TypeError, ValueError):
-        seconds = FAST_CUT_IMAGE_SECONDS
-    if not seconds or seconds <= 0:
-        seconds = FAST_CUT_IMAGE_SECONDS
-    return max(0.08, min(3.0, seconds))
-
-
-def _ffmpeg_path_arg(path: Path) -> str:
-    return path.resolve().as_posix().replace(":", "\\:")
-
-
-def _duration(path: Path) -> float:
-    proc = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nk=1:nw=1", str(path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if proc.returncode != 0:
-        raise RenderError(proc.stderr)
-    return float(proc.stdout.strip())
 
 
 def _font_path() -> str:
@@ -227,464 +147,23 @@ def render_placeholder_image(shot: dict[str, Any], out_path: Path, idx: int, tit
     img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=105, threshold=3)).save(out_path, quality=95)
 
 
-def _srt_ts(sec: float) -> str:
-    ms = int(round(sec * 1000))
-    h = ms // 3_600_000
-    ms %= 3_600_000
-    m = ms // 60_000
-    ms %= 60_000
-    s = ms // 1000
-    ms %= 1000
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-
-def _ass_ts(sec: float) -> str:
-    cs = int(round(sec * 100))
-    h = cs // 360000
-    cs %= 360000
-    m = cs // 6000
-    cs %= 6000
-    s = cs // 100
-    cs %= 100
-    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
-
-
-def _write_subtitles(shots: list[dict[str, Any]], srt_path: Path, ass_path: Path) -> None:
-    srt = []
-    for i, shot in enumerate(shots, 1):
-        srt.append(f"{i}\n{_srt_ts(shot['start'])} --> {_srt_ts(shot['end'])}\n{shot.get('voiceover', '')}\n")
-    srt_path.write_text("\n".join(srt), encoding="utf-8")
-    ass = [
-        "[Script Info]",
-        "ScriptType: v4.00+",
-        f"PlayResX: {W}",
-        f"PlayResY: {H}",
-        "ScaledBorderAndShadow: yes",
-        "",
-        "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: Default,Microsoft YaHei,54,&H00FFFFFF,&H000000FF,&H00111111,&H90000000,-1,0,0,0,100,100,0,0,1,4,1,2,70,70,150,1",
-        "",
-        "[Events]",
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    ]
-    for shot in shots:
-        text = "\\N".join([str(shot.get("voiceover", ""))[i : i + 18] for i in range(0, len(str(shot.get("voiceover", ""))), 18)])
-        ass.append(f"Dialogue: 0,{_ass_ts(shot['start'])},{_ass_ts(shot['end'])},Default,,0,0,0,,{text}")
-    ass_path.write_text("\n".join(ass), encoding="utf-8")
-
-
-def _allocate(shots: list[dict[str, Any]], total: float) -> None:
-    weights = [max(8, len(str(s.get("voiceover", "")))) for s in shots]
-    durs = [max(3.4, total * w / sum(weights)) for w in weights]
-    scale = total / sum(durs)
-    cursor = 0.0
-    for shot, dur in zip(shots, durs):
-        shot["start"] = cursor
-        cursor += dur * scale
-        shot["end"] = cursor
-    shots[-1]["end"] = total
-
-
-def _clip(image_path: Path, out_path: Path, duration: float, intro_template: str = "none") -> None:
-    frames = max(1, int(duration * FPS))
-    vf = (
-        f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
-        f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,"
-        f"zoompan=z='1+0.035*on/{frames}':d={frames}:s={W}x{H}:fps={FPS},format=yuv420p"
-    )
-    _run([
-        "ffmpeg", "-y", "-loop", "1", "-i", str(image_path),
-        "-vf", vf, "-t", f"{duration:.3f}",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p", str(out_path),
-    ])
-
-
-def _static_intro_clip(image_path: Path, out_path: Path, duration: float) -> None:
-    frames = max(1, int(round(duration * FPS)))
-    vf = (
-        f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-        f"crop={W}:{H},"
-        f"fps={FPS},format=yuv420p"
-    )
-    _run([
-        "ffmpeg", "-y", "-loop", "1", "-i", str(image_path),
-        "-vf", vf, "-frames:v", str(frames),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p", str(out_path),
-    ])
-
-
-def _linear_mask_transition(prev_path: Path, next_path: Path, out_path: Path, duration: float) -> None:
-    duration = max(0.08, float(duration))
-    frames = max(2, int(round(duration * FPS)))
-    duration = frames / FPS
-    feather = FAST_CUT_MASK_FEATHER
-    radius_expr = f"(({H / 2:.1f}+{feather})*N/{max(frames - 1, 1)})"
-    mask_expr = f"clip(255*((({radius_expr})+{feather}-abs(Y-{H / 2:.1f}))/{2 * feather}),0,255)"
-    image_vf = (
-        f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-        f"crop={W}:{H},"
-        f"fps={FPS},"
-        f"trim=duration={duration:.3f},setpts=PTS-STARTPTS,"
-        "format=yuv420p"
-    )
-    filter_complex = (
-        f"[0:v]{image_vf}[base];"
-        f"[1:v]{image_vf}[overrgb];"
-        f"[2:v]format=gray,geq=lum='{mask_expr}',trim=duration={duration:.3f},setpts=PTS-STARTPTS[alpha];"
-        "[overrgb][alpha]alphamerge[over];"
-        "[base][over]overlay=shortest=1:format=auto,format=yuv420p[v]"
-    )
-    _run([
-        "ffmpeg", "-y",
-        "-loop", "1", "-i", str(prev_path),
-        "-loop", "1", "-i", str(next_path),
-        "-f", "lavfi", "-i", f"nullsrc=s={W}x{H}:r={FPS}:d={duration:.3f}",
-        "-filter_complex", filter_complex,
-        "-map", "[v]", "-frames:v", str(frames),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p", str(out_path),
-    ])
-
-
-def _linear_mask_intro_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float) -> None:
-    image_seconds = _intro_image_seconds(image_seconds)
-    usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
-    if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
-        return
-
-    segment_dir = out_path.parent / f"{out_path.stem}_linear_mask"
-    segment_dir.mkdir(parents=True, exist_ok=True)
-    segments: list[Path] = []
-    elapsed = 0.0
-
-    try:
-        first_hold = segment_dir / "hold_01.mp4"
-        first_duration = min(image_seconds, duration)
-        _static_intro_clip(usable[0], first_hold, first_duration)
-        segments.append(first_hold)
-        elapsed += first_duration
-
-        for idx in range(1, len(usable)):
-            if elapsed >= duration - 0.03:
-                break
-            trans_path = segment_dir / f"mask_{idx:02d}.mp4"
-            transition_duration = min(image_seconds, max(0.03, duration - elapsed))
-            _linear_mask_transition(usable[idx - 1], usable[idx], trans_path, transition_duration)
-            segments.append(trans_path)
-            elapsed += transition_duration
-
-        if len(segments) == 1:
-            shutil.copy2(segments[0], out_path)
-        else:
-            _concat_video(segments, out_path)
-    finally:
-        list_path = out_path.with_suffix(".txt")
-        _safe_unlink(list_path)
-        _safe_rmtree(segment_dir)
-
-
-def _expand_mask_segment(image_path: Path, out_path: Path, duration: float, start_frame: int, total_frames: int) -> None:
-    frames = max(1, int(round(duration * FPS)))
-    duration = frames / FPS
-    total_frames = max(frames, int(total_frames))
-    denom = max(total_frames - 1, 1)
-    start_half = EXPAND_CUT_INITIAL_HALF_HEIGHT
-    end_half = (H / 2) + EXPAND_CUT_MASK_FEATHER
-    feather = EXPAND_CUT_MASK_FEATHER
-    half_expr = f"({start_half}+({end_half:.1f}-{start_half})*(N+{max(0, start_frame)})/{denom})"
-    mask_expr = f"clip(255*((({half_expr})+{feather}-abs(Y-{H / 2:.1f}))/{feather}),0,255)"
-    image_vf = (
-        f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-        f"crop={W}:{H},"
-        f"fps={FPS},"
-        f"trim=duration={duration:.3f},setpts=PTS-STARTPTS,"
-        "eq=contrast=1.07:saturation=1.08,format=rgba"
-    )
-    filter_complex = (
-        f"[0:v]{image_vf}[img];"
-        f"[1:v]format=gray,geq=lum='{mask_expr}',boxblur=18:1,"
-        f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[alpha];"
-        "[img][alpha]alphamerge[masked];"
-        "[2:v]format=rgba[base];"
-        "[base][masked]overlay=shortest=1:format=auto,format=yuv420p[v]"
-    )
-    _run([
-        "ffmpeg", "-y",
-        "-loop", "1", "-i", str(image_path),
-        "-f", "lavfi", "-i", f"nullsrc=s={W}x{H}:r={FPS}:d={duration:.3f}",
-        "-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:r={FPS}:d={duration:.3f}",
-        "-filter_complex", filter_complex,
-        "-map", "[v]", "-frames:v", str(frames),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p", str(out_path),
-    ])
-
-
-def _expand_cut_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float) -> None:
-    image_seconds = _intro_image_seconds(image_seconds)
-    usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
-    if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
-        return
-
-    effect_duration = min(duration, len(usable) * image_seconds)
-    frames_per_image = max(1, int(round(image_seconds * FPS)))
-    total_effect_frames = max(1, int(round(effect_duration * FPS)))
-    segment_dir = out_path.parent / f"{out_path.stem}_expand"
-    segment_dir.mkdir(parents=True, exist_ok=True)
-    segments: list[Path] = []
-    elapsed_frames = 0
-
-    try:
-        for idx, image_path in enumerate(usable):
-            if elapsed_frames >= total_effect_frames:
-                break
-            remaining_frames = total_effect_frames - elapsed_frames
-            segment_frames = min(frames_per_image, remaining_frames)
-            if segment_frames <= 0:
-                break
-            segment_path = segment_dir / f"expand_{idx + 1:02d}.mp4"
-            _expand_mask_segment(image_path, segment_path, segment_frames / FPS, elapsed_frames, total_effect_frames)
-            segments.append(segment_path)
-            elapsed_frames += segment_frames
-
-        remaining = max(0.0, duration - (elapsed_frames / FPS))
-        if remaining > 0.08:
-            hold_path = segment_dir / "hold.mp4"
-            _static_intro_clip(usable[-1], hold_path, remaining)
-            segments.append(hold_path)
-
-        if len(segments) == 1:
-            shutil.copy2(segments[0], out_path)
-        else:
-            _concat_video(segments, out_path)
-    finally:
-        list_path = out_path.with_suffix(".txt")
-        _safe_unlink(list_path)
-        _safe_rmtree(segment_dir)
-
-
-def _feather_wipe_transition(
-    prev_path: Path,
-    next_path: Path,
-    out_path: Path,
-    duration: float,
-    direction: str,
-) -> None:
-    duration = max(0.08, float(duration))
-    frames = max(2, int(round(duration * FPS)))
-    duration = frames / FPS
-    feather = FLASH_CUT_MASK_FEATHER
-    axis = "Y" if direction == "vertical" else "X"
-    size = H if direction == "vertical" else W
-    edge_expr = f"(-{feather}+({size + feather * 2})*N/{max(frames - 1, 1)})"
-    mask_expr = f"clip(255*((({edge_expr})-{axis}+{feather})/{2 * feather}),0,255)"
-    image_vf = (
-        f"scale={W}:{H}:force_original_aspect_ratio=increase,"
-        f"crop={W}:{H},"
-        f"fps={FPS},"
-        f"trim=duration={duration:.3f},setpts=PTS-STARTPTS,"
-        "eq=contrast=1.07:saturation=1.1,format=yuv420p"
-    )
-    filter_complex = (
-        f"[0:v]{image_vf}[base];"
-        f"[1:v]{image_vf}[overrgb];"
-        f"[2:v]format=gray,geq=lum='{mask_expr}',boxblur=10:1,"
-        f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[alpha];"
-        "[overrgb][alpha]alphamerge[over];"
-        "[base][over]overlay=shortest=1:format=auto,format=yuv420p[v]"
-    )
-    _run([
-        "ffmpeg", "-y",
-        "-loop", "1", "-i", str(prev_path),
-        "-loop", "1", "-i", str(next_path),
-        "-f", "lavfi", "-i", f"nullsrc=s={W}x{H}:r={FPS}:d={duration:.3f}",
-        "-filter_complex", filter_complex,
-        "-map", "[v]", "-frames:v", str(frames),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        "-pix_fmt", "yuv420p", str(out_path),
-    ])
-
-
-def _feather_flash_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float, direction: str) -> None:
-    image_seconds = _intro_image_seconds(image_seconds)
-    usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
-    if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
-        return
-
-    effect_duration = min(duration, len(usable) * image_seconds)
-    segment_dir = out_path.parent / f"{out_path.stem}_{direction}_flash"
-    segment_dir.mkdir(parents=True, exist_ok=True)
-    segments: list[Path] = []
-    elapsed = 0.0
-
-    try:
-        first_path = segment_dir / "flash_01.mp4"
-        first_duration = min(image_seconds, effect_duration)
-        _static_intro_clip(usable[0], first_path, first_duration)
-        segments.append(first_path)
-        elapsed += first_duration
-
-        for idx in range(1, len(usable)):
-            if elapsed >= effect_duration - 0.03:
-                break
-            segment_path = segment_dir / f"flash_{idx + 1:02d}.mp4"
-            segment_duration = min(image_seconds, max(0.03, effect_duration - elapsed))
-            _feather_wipe_transition(usable[idx - 1], usable[idx], segment_path, segment_duration, direction)
-            segments.append(segment_path)
-            elapsed += segment_duration
-
-        remaining = max(0.0, duration - elapsed)
-        if remaining > 0.08:
-            hold_path = segment_dir / "hold.mp4"
-            _static_intro_clip(usable[-1], hold_path, remaining)
-            segments.append(hold_path)
-
-        if len(segments) == 1:
-            shutil.copy2(segments[0], out_path)
-        else:
-            _concat_video(segments, out_path)
-    finally:
-        list_path = out_path.with_suffix(".txt")
-        _safe_unlink(list_path)
-        _safe_rmtree(segment_dir)
-
-
-def _staggered_mask_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float) -> None:
-    image_seconds = _intro_image_seconds(image_seconds)
-    usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
-    if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
-        return
-
-    sweep_seconds = max(image_seconds * STAGGERED_SWEEP_MULTIPLIER, 0.16)
-    effect_duration = min(duration, image_seconds * (len(usable) - 1) + sweep_seconds)
-    frames = max(1, int(round(effect_duration * FPS)))
-    effect_duration = frames / FPS
-    delay_frames = max(1, int(round(image_seconds * FPS)))
-    sweep_frames = max(2, int(round(sweep_seconds * FPS)))
-    feather = STAGGERED_MASK_FEATHER
-
-    cmd = ["ffmpeg", "-y"]
-    filters: list[str] = []
-    for idx, image_path in enumerate(usable):
-        cmd.extend(["-loop", "1", "-i", str(image_path)])
-    for _ in usable:
-        cmd.extend(["-f", "lavfi", "-i", f"nullsrc=s={W}x{H}:r={FPS}:d={effect_duration:.3f}"])
-    cmd.extend(["-f", "lavfi", "-i", f"color=c=black:s={W}x{H}:r={FPS}:d={effect_duration:.3f}"])
-
-    base_index = len(usable) * 2
-    filters.append(f"[{base_index}:v]format=rgba[base]")
-    current = "base"
-    for idx, _ in enumerate(usable):
-        filters.append(
-            f"[{idx}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
-            f"crop={W}:{H},fps={FPS},trim=duration={effect_duration:.3f},"
-            f"setpts=PTS-STARTPTS,format=rgba[img{idx}]"
-        )
-        delay = idx * delay_frames
-        edge_expr = f"(-{feather}+({H + feather * 2})*(N-{delay})/{max(sweep_frames - 1, 1)})"
-        mask_expr = f"clip(255*((({edge_expr})-Y+{feather})/{2 * feather}),0,255)"
-        filters.append(
-            f"[{len(usable) + idx}:v]format=gray,geq=lum='{mask_expr}',"
-            f"trim=duration={effect_duration:.3f},setpts=PTS-STARTPTS[alpha{idx}]"
-        )
-        filters.append(f"[img{idx}][alpha{idx}]alphamerge[layer{idx}]")
-        out_label = f"relay{idx}"
-        filters.append(f"[{current}][layer{idx}]overlay=shortest=1:format=auto[{out_label}]")
-        current = out_label
-
-    relay_path = out_path
-    hold_path: Path | None = None
-    if duration - effect_duration > 0.08:
-        segment_dir = out_path.parent / f"{out_path.stem}_staggered"
-        segment_dir.mkdir(parents=True, exist_ok=True)
-        relay_path = segment_dir / "relay.mp4"
-        hold_path = segment_dir / "hold.mp4"
-
-    try:
-        _run([
-            *cmd,
-            "-filter_complex", ";".join(filters) + f";[{current}]format=yuv420p[v]",
-            "-map", "[v]", "-frames:v", str(frames),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-            "-pix_fmt", "yuv420p", str(relay_path),
-        ])
-        if hold_path:
-            _static_intro_clip(usable[-1], hold_path, duration - effect_duration)
-            _concat_video([relay_path, hold_path], out_path)
-    finally:
-        if hold_path:
-            _safe_rmtree(hold_path.parent)
-
-
-def _fast_cut_clip(image_paths: list[Path], out_path: Path, duration: float, image_seconds: float) -> None:
-    image_seconds = _intro_image_seconds(image_seconds)
-    usable = [path for path in image_paths[:FAST_CUT_MAX_IMAGES] if path.exists()]
-    if duration <= 0.4 or len(usable) < 2:
-        _static_intro_clip(usable[0] if usable else image_paths[0], out_path, duration)
-        return
-
-    effect_duration = min(duration, len(usable) * image_seconds)
-    remaining = max(0.0, duration - effect_duration)
-
-    segment_dir = out_path.parent / f"{out_path.stem}_intro"
-    segment_dir.mkdir(parents=True, exist_ok=True)
-    mask_path = segment_dir / "linear_mask.mp4"
-    hold_path = segment_dir / "hold.mp4"
-    segments = [mask_path]
-
-    try:
-        _linear_mask_intro_clip(usable, mask_path, effect_duration, image_seconds)
-        if remaining > 0.08:
-            _static_intro_clip(usable[-1], hold_path, remaining)
-            segments.append(hold_path)
-        if len(segments) == 1:
-            shutil.copy2(mask_path, out_path)
-        else:
-            _concat_video(segments, out_path)
-    finally:
-        list_path = out_path.with_suffix(".txt")
-        _safe_unlink(list_path)
-        _safe_rmtree(segment_dir)
-
-
 def _concat(clips: list[Path], out_path: Path) -> None:
     list_path = out_path.with_suffix(".txt")
     list_path.write_text("".join(f"file '{p.as_posix()}'\n" for p in clips), encoding="utf-8")
-    _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(out_path)])
-
-
-def _concat_video(clips: list[Path], out_path: Path) -> None:
-    list_path = out_path.with_suffix(".txt")
-    list_path.write_text("".join(f"file '{p.as_posix()}'\n" for p in clips), encoding="utf-8")
-    try:
-        _run([
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
-            "-an", "-r", str(FPS),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-            "-pix_fmt", "yuv420p", str(out_path),
-        ])
-    finally:
-        _safe_unlink(list_path)
+    run_command(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(out_path)])
 
 
 def _concat_audio(files: list[Path], out_path: Path) -> None:
     list_path = out_path.with_suffix(".audio.txt")
     list_path.write_text("".join(f"file '{p.as_posix()}'\n" for p in files), encoding="utf-8")
-    _run([
+    run_command([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path),
         "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(out_path),
     ])
 
 
 def _video_filter(ass: Path, intro_template: str, duration: float) -> str:
-    ass_arg = _ffmpeg_path_arg(ass)
+    ass_arg = ffmpeg_path_arg(ass)
     return f"ass='{ass_arg}'"
 
 
@@ -724,7 +203,7 @@ def _final(
                 next_input += 1
 
         filters.append(f"{''.join(audio_labels)}amix=inputs={len(audio_labels)}:duration=first:dropout_transition=2[aout]")
-        _run([
+        run_command([
             *cmd,
             "-filter_complex", ";".join(filters),
             "-map", "[vout]", "-map", "[aout]", "-t", f"{duration:.3f}",
@@ -733,7 +212,7 @@ def _final(
             str(out_path),
         ])
         return
-    _run([
+    run_command([
         "ffmpeg", "-y", "-i", str(video), "-i", str(audio),
         "-vf", vf,
         "-map", "0:v", "-map", "1:a", "-t", f"{duration:.3f}",
@@ -858,7 +337,7 @@ def render_intro_previews(
     image_seconds: float = FAST_CUT_IMAGE_SECONDS,
 ) -> dict[str, Any]:
     clean = normalize_story(story)
-    image_seconds = _intro_image_seconds(image_seconds)
+    image_seconds = normalize_intro_image_seconds(image_seconds)
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_preview_") + uuid.uuid4().hex[:8]
     project_dir = WORKSPACE / project_id
     preview_dir = project_dir / "previews" / "intro_templates"
@@ -877,18 +356,7 @@ def render_intro_previews(
     items: list[dict[str, str]] = []
     for template in valid_templates:
         out_path = preview_dir / f"{template}.mp4"
-        if template == FAST_CUT_TEMPLATE:
-            _fast_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds)
-        elif template == EXPAND_CUT_TEMPLATE:
-            _expand_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds)
-        elif template == FLASH_HORIZONTAL_TEMPLATE:
-            _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, "horizontal")
-        elif template == FLASH_VERTICAL_TEMPLATE:
-            _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, "vertical")
-        elif template == STAGGERED_MASK_TEMPLATE:
-            _staggered_mask_clip(image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds)
-        else:
-            _clip(image_paths[0], out_path, duration, "none")
+        render_intro_template(template, image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds)
         items.append({
             "id": template,
             "video": f"/workspace/{project_id}/previews/intro_templates/{template}.mp4",
@@ -914,6 +382,7 @@ def render_story(
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     intro_template: str = "none",
     bgm_id: str | None = None,
+    intro_sfx_id: str | None = "default",
     intro_image_seconds: float = FAST_CUT_IMAGE_SECONDS,
 ) -> dict[str, Any]:
     def report(progress: float, stage: str, detail: str = "", **extra: Any) -> None:
@@ -947,9 +416,9 @@ def render_story(
     merged_path = project_dir / "storyboard_merged.mp4"
     final_path = project_dir / "final.mp4"
     intro_template = intro_template if intro_template in INTRO_TEMPLATES else "none"
-    intro_image_seconds = _intro_image_seconds(intro_image_seconds)
+    intro_image_seconds = normalize_intro_image_seconds(intro_image_seconds)
     bgm_path = resolve_bgm_path(bgm_id)
-    reveal_sfx_path = default_reveal_sfx_path(intro_template)
+    intro_sfx_path = resolve_intro_sfx_path(intro_sfx_id, intro_template)
     tts = tts_config or TtsConfig.from_payload({"voice": voice, "rate": rate})
 
     script_path.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -965,7 +434,7 @@ def render_story(
         )
         part_path = audio_dir / f"shot_{idx + 1:02d}.mp3"
         asyncio.run(synthesize_tts(str(shot["voiceover"]), part_path, tts))
-        part_duration = _duration(part_path)
+        part_duration = media_duration(part_path)
         shot["start"] = cursor
         cursor += part_duration
         shot["end"] = cursor
@@ -974,11 +443,11 @@ def render_story(
         voice_parts.append(part_path)
     report(0.4, "合并配音", "正在合并全部配音片段")
     _concat_audio(voice_parts, voice_path)
-    total = _duration(voice_path)
+    total = media_duration(voice_path)
     if shots:
         shots[-1]["end"] = total
     report(0.46, "生成字幕", "正在写入 SRT 和 ASS 字幕")
-    _write_subtitles(shots, srt_path, ass_path)
+    write_subtitles(shots, srt_path, ass_path)
     script_path.write_text(json.dumps({**clean, "audio_duration": total}, ensure_ascii=False, indent=2), encoding="utf-8")
 
     image_paths: list[Path] = []
@@ -1014,22 +483,16 @@ def render_story(
         img_path = image_paths[idx]
         clip_path = clips_dir / f"shot_{idx + 1:02d}.mp4"
         clip_duration = float(shot["end"]) - float(shot["start"])
-        if idx == 0 and intro_template == FAST_CUT_TEMPLATE:
-            _fast_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration, intro_image_seconds)
-        elif idx == 0 and intro_template == EXPAND_CUT_TEMPLATE:
-            _expand_cut_clip(image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration, intro_image_seconds)
-        elif idx == 0 and intro_template == FLASH_HORIZONTAL_TEMPLATE:
-            _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration, intro_image_seconds, "horizontal")
-        elif idx == 0 and intro_template == FLASH_VERTICAL_TEMPLATE:
-            _feather_flash_clip(image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration, intro_image_seconds, "vertical")
-        elif idx == 0 and intro_template == STAGGERED_MASK_TEMPLATE:
-            _staggered_mask_clip(image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration, intro_image_seconds)
+        if idx == 0 and intro_template != "none":
+            render_intro_template(intro_template, image_paths[:FAST_CUT_MAX_IMAGES], clip_path, clip_duration, intro_image_seconds)
         else:
-            _clip(img_path, clip_path, clip_duration, intro_template if idx == 0 else "none")
+            render_still_clip(img_path, clip_path, clip_duration)
         clips.append(clip_path)
     report(0.84, "合并镜头", "正在合并镜头视频")
     _concat(clips, merged_path)
-    report(0.9, "导出成片", "正在压制字幕、配音和 BGM" if bgm_path else "正在压制字幕和音频")
+    extra_audio_labels = [label for label, enabled in [("BGM", bgm_path), ("开头音效", intro_sfx_path)] if enabled]
+    detail = f"正在压制字幕、配音和{'、'.join(extra_audio_labels)}" if extra_audio_labels else "正在压制字幕和音频"
+    report(0.9, "导出成片", detail)
     _final(
         merged_path,
         voice_path,
@@ -1038,8 +501,8 @@ def render_story(
         total,
         intro_template,
         bgm_path,
-        reveal_sfx_path,
-        [float(shot["start"]) for shot in shots],
+        intro_sfx_path,
+        [0.0],
     )
     if cleanup_intermediate:
         report(0.98, "清理文件", "正在清理临时渲染文件")
@@ -1058,5 +521,5 @@ def render_story(
         "intro_image_seconds": intro_image_seconds,
         "tts_provider": tts.provider,
         "bgm": str(bgm_path.resolve()) if bgm_path else "",
-        "sfx": str(reveal_sfx_path.resolve()) if reveal_sfx_path else "",
+        "intro_sfx": str(intro_sfx_path.resolve()) if intro_sfx_path else "",
     }
