@@ -1,6 +1,40 @@
 import { clampProgress, introImageSecondsValue, sleep } from "./workflow-utils.js";
 
 export function createRenderWorkflow({ els, ui, api, settings, storyView, projectStore }) {
+  function hasImage(shot) {
+    return Boolean(shot?.image_url || shot?.image_path);
+  }
+
+  function renderReadiness(story) {
+    const shots = Array.isArray(story?.shots) ? story.shots : [];
+    if (!shots.length) {
+      return { ok: false, message: "请先完成分镜，再渲染 MP4。" };
+    }
+    const missing = shots
+      .map((shot, index) => hasImage(shot) ? -1 : index + 1)
+      .filter((index) => index > 0);
+    if (missing.length) {
+      const preview = missing.slice(0, 8).join("、");
+      const suffix = missing.length > 8 ? " 等" : "";
+      return {
+        ok: false,
+        message: `还有 ${missing.length} 个分镜图片未生成：第 ${preview}${suffix} 个。请先生成完所有分镜图片。`,
+      };
+    }
+    const cover = story?.cover || null;
+    if (!cover) {
+      return { ok: false, message: "请先在分镜工作台选择一张图片作为封面，再渲染 MP4。" };
+    }
+    const coverIndex = Number(cover.source_shot_index);
+    if (!Number.isInteger(coverIndex) || coverIndex < 0 || coverIndex >= shots.length) {
+      return { ok: false, message: "封面未正确选择，请先在分镜工作台重新选择封面。" };
+    }
+    if (!hasImage(cover) && !hasImage(shots[coverIndex])) {
+      return { ok: false, message: "封面图片未生成，请先选择一张已生成的分镜图片作为封面。" };
+    }
+    return { ok: true, message: "" };
+  }
+
   function updateRenderProgress(job, options = {}) {
     if (!els.renderProgress) return;
     const currentProgress = Number.parseInt(els.renderProgressPercent?.textContent || "0", 10) / 100;
@@ -56,6 +90,21 @@ export function createRenderWorkflow({ els, ui, api, settings, storyView, projec
 
   async function renderVideo() {
     settings.persist();
+    let story;
+    try {
+      story = storyView.read();
+    } catch (err) {
+      ui.setStatus("暂不能渲染", "error");
+      if (els.result) els.result.textContent = `分镜数据无效：${String(err.message || err)}`;
+      return;
+    }
+    const readiness = renderReadiness(story);
+    if (!readiness.ok) {
+      ui.setStatus("暂不能渲染", "error");
+      if (els.result) els.result.textContent = readiness.message;
+      updateRenderProgress({ stage: "暂不能渲染", detail: readiness.message, status: "error" }, { error: true });
+      return;
+    }
     ui.setBusy(true);
     ui.setStatus("提交渲染", "busy");
     updateRenderProgress({ progress: 0, stage: "提交渲染", detail: "正在提交渲染任务" });
@@ -65,7 +114,7 @@ export function createRenderWorkflow({ els, ui, api, settings, storyView, projec
       await projectStore.ensureSaved();
       const voiceConfig = renderVoiceConfig();
       const payload = {
-        story: storyView.read(),
+        story,
         voice: voiceConfig.voice,
         rate: voiceConfig.rate,
         tts_preset: voiceConfig.ttsPreset,

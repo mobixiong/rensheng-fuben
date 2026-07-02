@@ -9,7 +9,6 @@ from typing import Any
 from .paths import ACTIVE_PROJECT, LEGACY_PROJECT_STATE, PROJECTS_DIR, WORKSPACE
 
 TRANSIENT_IMAGE_STATUSES = {"generating", "retrying", "redrawing"}
-TRANSIENT_IMAGE_STATUS_TTL_SECONDS = 20 * 60
 PROMPT_POLICY_ERROR_MARKERS = (
     "content_policy_violation",
     "policy_violation",
@@ -22,6 +21,7 @@ PROMPT_POLICY_ERROR_MESSAGE = (
     "提示词被内容安全策略拦截：日志显示本次生图返回 content_policy_violation，"
     "可能包含暴力、血腥或敏感表达。请修改该镜头的口播、画面描述或图片提示词后重试。"
 )
+GENERATED_PROJECT_ID_RE = re.compile(r"^(?P<stamp>\d{8}_\d{6})_(?P<slug>.+)_(?P<suffix>[0-9a-f]{6})$")
 
 
 def _slug(value: str) -> str:
@@ -35,6 +35,87 @@ def safe_project_id(value: Any, topic: str = "") -> str:
     if raw and not re.search(r'[<>:"/\\|?*\x00-\x1f]', raw) and ".." not in raw:
         return raw[:120]
     return f"{time.strftime('%Y%m%d_%H%M%S')}_{_slug(topic)}_{uuid.uuid4().hex[:6]}"
+
+
+def _ensure_project_child(path: Path) -> Path:
+    resolved = path.resolve()
+    projects_root = PROJECTS_DIR.resolve()
+    try:
+        resolved.relative_to(projects_root)
+    except ValueError as exc:
+        raise ValueError("Invalid project path") from exc
+    return resolved
+
+
+def _unique_project_id(project_id: str, current_id: str = "") -> str:
+    candidate = project_id[:120]
+    if candidate == current_id or not project_dir(candidate).exists():
+        return candidate
+    base = candidate[:113].rstrip("_")
+    for _ in range(20):
+        candidate = f"{base}_{uuid.uuid4().hex[:6]}"[:120]
+        if candidate == current_id or not project_dir(candidate).exists():
+            return candidate
+    return safe_project_id("", candidate)
+
+
+def _project_id_for_topic(current_id: str, topic: str) -> str:
+    safe_id = safe_project_id(current_id, topic)
+    clean_topic = str(topic or "").strip()
+    if not clean_topic:
+        return safe_id
+    match = GENERATED_PROJECT_ID_RE.match(safe_id)
+    if not match:
+        return safe_id
+    next_id = f"{match.group('stamp')}_{_slug(clean_topic)}_{match.group('suffix')}"
+    return _unique_project_id(next_id, safe_id)
+
+
+def _replace_project_refs(value: Any, old_project_id: str, new_project_id: str) -> Any:
+    if old_project_id == new_project_id:
+        return value
+    if isinstance(value, dict):
+        return {key: _replace_project_refs(item, old_project_id, new_project_id) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_project_refs(item, old_project_id, new_project_id) for item in value]
+    if not isinstance(value, str):
+        return value
+    old_project_path = str(project_dir(old_project_id).resolve())
+    new_project_path = str(project_dir(new_project_id).resolve())
+    return (
+        value
+        .replace(f"/workspace/projects/{old_project_id}", f"/workspace/projects/{new_project_id}")
+        .replace(old_project_path, new_project_path)
+    )
+
+
+def _rename_project_dir_if_needed(old_project_id: str, new_project_id: str) -> None:
+    if not old_project_id or old_project_id == new_project_id:
+        return
+    old_dir = _ensure_project_child(project_dir(old_project_id))
+    new_dir = _ensure_project_child(project_dir(new_project_id))
+    if not old_dir.exists():
+        return
+    if new_dir.exists():
+        return
+    new_dir.parent.mkdir(parents=True, exist_ok=True)
+    old_dir.rename(new_dir)
+    _rewrite_project_refs_in_files(new_dir, old_project_id, new_project_id)
+
+
+def _rewrite_project_refs_in_files(target_dir: Path, old_project_id: str, new_project_id: str) -> None:
+    if old_project_id == new_project_id or not target_dir.exists():
+        return
+    for path in target_dir.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in {".json", ".txt", ".srt", ".ass"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        next_text = str(_replace_project_refs(text, old_project_id, new_project_id))
+        if next_text != text:
+            path.write_text(next_text, encoding="utf-8")
 
 
 def project_dir(project_id: str) -> Path:
@@ -79,78 +160,14 @@ def _image_job_status(shot: dict[str, Any]) -> str:
     return ""
 
 
-def _status_started_at_seconds(shot: dict[str, Any]) -> float:
-    job = shot.get("_image_job") if isinstance(shot.get("_image_job"), dict) else {}
-    raw = job.get("started_at") or job.get("updated_at") or shot.get("_image_status_started_at") or shot.get("_image_status_updated_at") or 0
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return 0.0
-    return value / 1000 if value > 10_000_000_000 else value
-
-
-def _transient_status_is_fresh(shot: dict[str, Any]) -> bool:
-    if not _image_job_status(shot):
-        return False
-    started_at = _status_started_at_seconds(shot)
-    return bool(started_at and time.time() - started_at <= TRANSIENT_IMAGE_STATUS_TTL_SECONDS)
-
-
-def _migrate_image_job(shot: dict[str, Any], has_image: bool = False) -> None:
-    status = _image_job_status(shot)
-    if not status:
-        return
-    job = shot.get("_image_job")
-    if not isinstance(job, dict):
-        now = time.time()
-        started_at = _status_started_at_seconds(shot) or now
-        shot["_image_job"] = {
-            "status": status,
-            "attempt": shot.get("_image_attempt") or 1,
-            "started_at": int(started_at * 1000),
-            "updated_at": int(now * 1000),
-        }
-    shot["_image_status"] = "done" if has_image else "pending"
-    shot.pop("_image_attempt", None)
-    shot.pop("_image_status_started_at", None)
-    shot.pop("_image_status_updated_at", None)
-
-
-def _image_is_newer_than_status(image_path: Path, shot: dict[str, Any]) -> bool:
-    started_at = _status_started_at_seconds(shot)
-    if not started_at:
-        return True
-    try:
-        return image_path.stat().st_mtime >= started_at
-    except OSError:
-        return True
-
-
 def _mark_shot_image_done(shot: dict[str, Any], project_id: str, image_path: Path) -> None:
     shot["image_path"] = str(image_path.resolve())
     shot["image_url"] = f"/workspace/projects/{project_id}/images/{image_path.name}"
-    if (
-        _image_job_status(shot)
-        and _transient_status_is_fresh(shot)
-        and not _image_is_newer_than_status(image_path, shot)
-    ):
-        _migrate_image_job(shot, has_image=True)
-        shot.pop("_image_error", None)
-        shot.pop("_image_error_category", None)
-        shot.pop("_image_error_code", None)
-        return
     shot["_image_status"] = "done"
     _clear_image_runtime_fields(shot)
     shot.pop("_image_error", None)
     shot.pop("_image_error_category", None)
     shot.pop("_image_error_code", None)
-
-
-def _mark_cover_image_done(cover: dict[str, Any], project_id: str, image_path: Path) -> None:
-    cover["image_path"] = str(image_path.resolve())
-    cover["image_url"] = f"/workspace/projects/{project_id}/cover/{image_path.name}"
-    cover["_cover_status"] = "done"
-    cover.pop("_cover_error", None)
 
 
 def _has_prompt_policy_error(value: Any) -> bool:
@@ -266,9 +283,6 @@ def _copy_project_images(state: dict[str, Any], target_project_dir: Path) -> Non
                 shot["_image_status"] = "error"
                 _clear_image_runtime_fields(shot)
                 continue
-            if _transient_status_is_fresh(shot):
-                _migrate_image_job(shot, has_image=False)
-                continue
             shot["_image_status"] = "pending"
             _clear_image_runtime_fields(shot)
             shot.pop("_image_error", None)
@@ -277,46 +291,36 @@ def _copy_project_images(state: dict[str, Any], target_project_dir: Path) -> Non
     _mark_prompt_policy_errors(state)
 
 
-def _copy_project_cover(state: dict[str, Any], target_project_dir: Path) -> None:
+def _sync_cover_from_selected_shot(state: dict[str, Any]) -> None:
     story = state.get("story")
     if not isinstance(story, dict):
         return
     cover = story.get("cover")
     if not isinstance(cover, dict):
         return
-
-    cover_dir = target_project_dir / "cover"
-    cover_dir.mkdir(parents=True, exist_ok=True)
-    source = None
-    raw_path = str(cover.get("image_path") or "").strip()
-    if raw_path:
-        source = Path(raw_path)
-    if (not source or not source.exists()) and cover.get("image_url"):
-        source = _workspace_path_from_url(str(cover.get("image_url")))
-    if source and source.exists():
-        target = cover_dir / f"cover{source.suffix or '.png'}"
-        if source.resolve() != target.resolve():
-            shutil.copy2(source, target)
-        _mark_cover_image_done(cover, state["project_id"], target)
-    else:
-        for suffix in (".png", ".jpg", ".jpeg", ".webp"):
-            target = cover_dir / f"cover{suffix}"
-            if target.exists():
-                _mark_cover_image_done(cover, state["project_id"], target)
-                break
-
-    raw_source = None
-    raw_cover_path = str(cover.get("raw_image_path") or "").strip()
-    if raw_cover_path:
-        raw_source = Path(raw_cover_path)
-    if (not raw_source or not raw_source.exists()) and cover.get("raw_image_url"):
-        raw_source = _workspace_path_from_url(str(cover.get("raw_image_url")))
-    if raw_source and raw_source.exists():
-        raw_target = cover_dir / f"cover_raw{raw_source.suffix or '.png'}"
-        if raw_source.resolve() != raw_target.resolve():
-            shutil.copy2(raw_source, raw_target)
-        cover["raw_image_path"] = str(raw_target.resolve())
-        cover["raw_image_url"] = f"/workspace/projects/{state['project_id']}/cover/{raw_target.name}"
+    shots = story.get("shots")
+    if not isinstance(shots, list):
+        return
+    try:
+        index = int(cover.get("source_shot_index"))
+    except (TypeError, ValueError):
+        return
+    if index < 0 or index >= len(shots) or not isinstance(shots[index], dict):
+        return
+    shot = shots[index]
+    image_path = str(shot.get("image_path") or "").strip()
+    image_url = str(shot.get("image_url") or "").strip()
+    if not image_path and not image_url:
+        cover["_cover_status"] = "pending"
+        return
+    cover["image_path"] = image_path
+    cover["image_url"] = image_url
+    cover["image_size"] = shot.get("image_size") or story.get("image_size") or cover.get("image_size") or ""
+    cover["image_prompt"] = str(cover.get("image_prompt") or shot.get("image_prompt") or shot.get("visual") or shot.get("voiceover") or "").strip()
+    cover["_cover_status"] = "selected"
+    cover.pop("_cover_error", None)
+    cover.pop("raw_image_path", None)
+    cover.pop("raw_image_url", None)
 
 
 def hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, Any]:
@@ -338,28 +342,23 @@ def hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, 
                 shot["_image_status"] = "error"
                 _clear_image_runtime_fields(shot)
                 continue
-            if _transient_status_is_fresh(shot):
-                _migrate_image_job(shot, has_image=False)
-                continue
             shot["_image_status"] = "pending"
             _clear_image_runtime_fields(shot)
             shot.pop("_image_error", None)
             shot.pop("_image_error_category", None)
             shot.pop("_image_error_code", None)
     _mark_prompt_policy_errors(state)
-    cover = story.get("cover")
-    if isinstance(cover, dict):
-        cover_dir = project_dir(project_id) / "cover"
-        for suffix in (".png", ".jpg", ".jpeg", ".webp"):
-            cover_path = cover_dir / f"cover{suffix}"
-            if cover_path.exists():
-                _mark_cover_image_done(cover, project_id, cover_path)
-                break
+    _sync_cover_from_selected_shot(state)
     return state
 
 
-def write_project_files(state: dict[str, Any]) -> dict[str, Any]:
-    project_id = safe_project_id(state.get("project_id"), str(state.get("topic") or ""))
+def write_project_files(state: dict[str, Any], *, set_active: bool = True) -> dict[str, Any]:
+    old_project_id = safe_project_id(state.get("project_id"), str(state.get("topic") or ""))
+    lock_project_id = bool(state.get("_lock_project_id") or state.get("lock_project_id"))
+    project_id = old_project_id if lock_project_id else _project_id_for_topic(old_project_id, str(state.get("topic") or ""))
+    if old_project_id != project_id:
+        _rename_project_dir_if_needed(old_project_id, project_id)
+        state = _replace_project_refs(state, old_project_id, project_id)
     target_project_dir = project_dir(project_id)
     prompts_dir = target_project_dir / "prompts"
     target_project_dir.mkdir(parents=True, exist_ok=True)
@@ -373,7 +372,7 @@ def write_project_files(state: dict[str, Any]) -> dict[str, Any]:
     }
     _preserve_existing_image_errors(payload, target_project_dir)
     _copy_project_images(payload, target_project_dir)
-    _copy_project_cover(payload, target_project_dir)
+    _sync_cover_from_selected_shot(payload)
     story = payload.get("story")
 
     (target_project_dir / "state.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -383,6 +382,7 @@ def write_project_files(state: dict[str, Any]) -> dict[str, Any]:
     (prompts_dir / "copy_to_story_prompt.txt").write_text(str(payload.get("copy_to_story_prompt") or ""), encoding="utf-8")
     (prompts_dir / "image_prompt.txt").write_text(str(payload.get("image_prompt") or ""), encoding="utf-8")
     (prompts_dir / "improve_image_prompt.txt").write_text(str(payload.get("improve_image_prompt") or ""), encoding="utf-8")
+    (prompts_dir / "theme_idea_prompt.txt").write_text(str(payload.get("theme_idea_prompt") or ""), encoding="utf-8")
     if isinstance(story, dict):
         (target_project_dir / "story.json").write_text(json.dumps(story, ensure_ascii=False, indent=2), encoding="utf-8")
     elif payload.get("story_json"):
@@ -394,8 +394,9 @@ def write_project_files(state: dict[str, Any]) -> dict[str, Any]:
         "project_url": payload["project_url"],
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    ACTIVE_PROJECT.parent.mkdir(parents=True, exist_ok=True)
-    ACTIVE_PROJECT.write_text(json.dumps({"project_id": project_id}, ensure_ascii=False, indent=2), encoding="utf-8")
+    if set_active:
+        ACTIVE_PROJECT.parent.mkdir(parents=True, exist_ok=True)
+        ACTIVE_PROJECT.write_text(json.dumps({"project_id": project_id}, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
 
@@ -471,6 +472,25 @@ def activate_project(project_id: str) -> dict[str, Any]:
     ACTIVE_PROJECT.parent.mkdir(parents=True, exist_ok=True)
     ACTIVE_PROJECT.write_text(json.dumps({"project_id": safe_id}, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True, "project_id": safe_id, "state": state}
+
+
+def delete_project(project_id: str) -> dict[str, Any]:
+    safe_id = safe_project_id(project_id)
+    target = _ensure_project_child(project_dir(safe_id))
+    if not target.exists() or not target.is_dir():
+        raise FileNotFoundError(safe_id)
+    shutil.rmtree(target)
+    if target.exists():
+        raise RuntimeError("Project folder was not removed")
+    if active_project_id() == safe_id and ACTIVE_PROJECT.exists():
+        ACTIVE_PROJECT.unlink()
+    return {
+        "ok": True,
+        "project_id": safe_id,
+        "deleted": True,
+        "active_project_id": active_project_id(),
+        "projects": list_projects(),
+    }
 
 
 def save_project_state(state: dict[str, Any]) -> dict[str, Any]:

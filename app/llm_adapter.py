@@ -11,6 +11,7 @@ from .paths import ROOT
 DEFAULT_PROMPT_PATH = ROOT / "prompts" / "story_shots.md"
 COPY_TO_STORY_PROMPT_PATH = ROOT / "prompts" / "copy_to_story.md"
 THEME_PROMPT_PATH = ROOT / "prompts" / "theme_plan.md"
+THEME_IDEAS_PROMPT_PATH = ROOT / "prompts" / "theme_ideas.md"
 IMPROVE_IMAGE_PROMPT_PATH = ROOT / "prompts" / "image_prompt_improve.md"
 GEMINI_WEB2API_BASE_URL = "http://127.0.0.1:8081/v1"
 GEMINI_WEB2API_MODEL = "gemini-3.5-flash-thinking"
@@ -49,6 +50,10 @@ def load_copy_to_story_prompt() -> str:
 
 def load_theme_prompt() -> str:
     return THEME_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def load_theme_ideas_prompt() -> str:
+    return THEME_IDEAS_PROMPT_PATH.read_text(encoding="utf-8")
 
 
 def load_improve_image_prompt() -> str:
@@ -166,6 +171,54 @@ def generate_topic_plan(brief: str, cfg: LLMConfig, system_prompt: str | None = 
     return {"topic": topic, "intro": intro}
 
 
+def generate_theme_ideas(
+    brief: str,
+    cfg: LLMConfig,
+    system_prompt: str | None = None,
+    *,
+    count: int = 6,
+    instruction: str = "",
+) -> dict[str, Any]:
+    prompt = system_prompt or load_theme_ideas_prompt()
+    safe_count = max(1, min(int(count or 6), 12))
+    user_parts = [
+        f"需要生成 {safe_count} 条候选选题方向。",
+        f"用户给出的粗略方向：{brief.strip() or '未填写，请直接给出候选方向'}",
+    ]
+    if instruction.strip():
+        user_parts.append(f"额外要求：{instruction.strip()}")
+    content = _provider_text(prompt, "\n".join(user_parts), replace(cfg, temperature=cfg.temperature or 0.8))
+    try:
+        data = _extract_json(content)
+    except Exception as exc:
+        raise LLMError(f"LLM did not return valid theme ideas JSON: {content[:1000]}") from exc
+    raw_ideas = data.get("ideas") if isinstance(data, dict) else None
+    if not isinstance(raw_ideas, list):
+        raise LLMError(f"Theme ideas JSON missing ideas array: {content[:1000]}")
+    ideas: list[dict[str, Any]] = []
+    for item in raw_ideas:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        direction = str(item.get("direction") or item.get("brief") or item.get("idea") or "").strip()
+        reason = str(item.get("reason") or item.get("description") or "").strip()
+        raw_tags = item.get("tags")
+        tags = [str(tag).strip() for tag in raw_tags if str(tag).strip()] if isinstance(raw_tags, list) else []
+        if not direction:
+            continue
+        ideas.append({
+            "title": title or direction[:18],
+            "direction": direction,
+            "tags": tags[:5],
+            "reason": reason,
+        })
+        if len(ideas) >= safe_count:
+            break
+    if not ideas:
+        raise LLMError(f"Theme ideas JSON contains no valid ideas: {content[:1000]}")
+    return {"ideas": ideas}
+
+
 def revise_topic_plan(
     brief: str,
     topic: str,
@@ -275,4 +328,116 @@ def test_text_connection(cfg: LLMConfig) -> dict[str, Any]:
         "provider": cfg.provider,
         "model": cfg.model,
         "sample": content.strip()[:80],
+    }
+
+
+REFERENCE_SELECTION_PROMPT = """你是短视频分镜参考图选择器。
+你的任务不是选择所有相关图片，而是从资产列表中选择“最关键的一张参考图”。
+
+选择规则：
+1. 默认只选择 1 张参考图。
+2. 如果镜头中出现明确人物，优先选择该人物。
+3. 只有在没有明确人物时，才选择核心场景。
+4. 只有在没有人物和场景时，才选择风格图。
+5. 道具、服装只有在它们是镜头唯一主体时才选择。
+6. 如果没有合适图片，返回 null。
+7. 只能从资产列表中选择已有 id。
+8. 不要为了凑数选择参考图。
+9. 只返回 JSON，不要输出解释文本。
+
+返回格式：
+{"selected_asset_id": "资产 id 或 null", "selection_type": "character/scene/prop/costume/style/none", "reason": "一句中文原因"}"""
+
+
+REFERENCE_TYPE_PRIORITY = {
+    "character": 10,
+    "scene": 8,
+    "prop": 6,
+    "costume": 5,
+    "style": 3,
+    "other": 1,
+}
+
+
+def _shot_reference_text(shot: dict[str, Any]) -> str:
+    return "\n".join([
+        str(shot.get("punch") or ""),
+        str(shot.get("keyword") or ""),
+        str(shot.get("voiceover") or ""),
+        str(shot.get("visual") or ""),
+        str(shot.get("image_prompt") or ""),
+    ])
+
+
+def _fallback_reference_selection(shot: dict[str, Any], assets: list[dict[str, Any]]) -> dict[str, Any]:
+    shot_text = _shot_reference_text(shot)
+    best: tuple[int, dict[str, Any]] | None = None
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        terms = [str(asset.get("name") or "").strip()]
+        terms.extend(str(tag or "").strip() for tag in asset.get("tags") or [])
+        terms = [term for term in terms if term]
+        if not terms or not any(term and term in shot_text for term in terms):
+            continue
+        score = max((len(term) for term in terms if term in shot_text), default=0)
+        score += REFERENCE_TYPE_PRIORITY.get(str(asset.get("type") or "other"), 1)
+        if best is None or score > best[0]:
+            best = (score, asset)
+    if best is None:
+        return {"selected_asset_id": None, "selection_type": "none", "reason": "镜头没有命中任何资产名称或标签"}
+    asset = best[1]
+    return {
+        "selected_asset_id": asset.get("id"),
+        "selection_type": asset.get("type") or "other",
+        "reason": f"镜头内容命中资产“{asset.get('name') or asset.get('id')}”",
+    }
+
+
+def select_primary_reference_asset(
+    shot: dict[str, Any],
+    assets: list[dict[str, Any]],
+    cfg: LLMConfig,
+) -> dict[str, Any]:
+    valid_assets = [
+        {
+            "id": str(asset.get("id") or ""),
+            "name": str(asset.get("name") or ""),
+            "type": str(asset.get("type") or "other"),
+            "description": str(asset.get("description") or ""),
+            "tags": asset.get("tags") if isinstance(asset.get("tags"), list) else [],
+        }
+        for asset in assets
+        if isinstance(asset, dict) and asset.get("id") and asset.get("name")
+    ]
+    if not valid_assets:
+        return {"selected_asset_id": None, "selection_type": "none", "reason": "资产集合为空"}
+    fallback = _fallback_reference_selection(shot, valid_assets)
+    if not (cfg.base_url and cfg.api_key and cfg.model):
+        return fallback
+
+    user_content = json.dumps({
+        "shot": {
+            "voiceover": shot.get("voiceover") or "",
+            "visual": shot.get("visual") or "",
+            "image_prompt": shot.get("image_prompt") or "",
+        },
+        "available_assets": valid_assets,
+    }, ensure_ascii=False, indent=2)
+    try:
+        content = _provider_text(REFERENCE_SELECTION_PROMPT, user_content, replace(cfg, temperature=0))
+        data = _extract_json(content)
+    except Exception:
+        return fallback
+
+    selected_id = data.get("selected_asset_id")
+    selected_id = str(selected_id).strip() if selected_id is not None else ""
+    allowed = {asset["id"]: asset for asset in valid_assets}
+    if not selected_id or selected_id.lower() == "null" or selected_id not in allowed:
+        return {"selected_asset_id": None, "selection_type": "none", "reason": str(data.get("reason") or "没有合适参考图")}
+    asset = allowed[selected_id]
+    return {
+        "selected_asset_id": selected_id,
+        "selection_type": asset.get("type") or str(data.get("selection_type") or "other"),
+        "reason": str(data.get("reason") or f"选择最关键参考图：{asset.get('name')}")[:240],
     }

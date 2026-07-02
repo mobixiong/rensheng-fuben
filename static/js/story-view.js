@@ -27,7 +27,6 @@ export function createStoryView({
     els.editor.value = JSON.stringify(story, null, 2);
     updateMeta();
     renderShotGrid();
-    renderCoverPanel();
     if (scheduleSave) onStoryChanged();
   }
 
@@ -44,6 +43,7 @@ export function createStoryView({
 
   function updatePromptMeta() {
     if (els.themeIntroMeta) els.themeIntroMeta.textContent = `${els.themeIntro?.value.length || 0} 字`;
+    if (els.themeIdeaPromptMeta) els.themeIdeaPromptMeta.textContent = `${els.themeIdeaPrompt?.value.length || 0} 字`;
     if (els.copyPromptMeta) els.copyPromptMeta.textContent = `${els.copyPrompt.value.length} 字`;
     if (els.copyMeta) els.copyMeta.textContent = `${els.copyOutput.value.length} 字`;
     if (els.copyToStoryPromptMeta) els.copyToStoryPromptMeta.textContent = `${els.copyToStoryPrompt.value.length} 字`;
@@ -69,21 +69,6 @@ export function createStoryView({
     return "";
   }
 
-  function coverImageSrc(cover) {
-    if (!cover) return "";
-    const version = cover._cover_version || cover._image_version || "";
-    const appendVersion = (src) => version ? `${src}${src.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}` : src;
-    if (cover.image_url) return appendVersion(cover.image_url);
-    if (cover.image_path) {
-      const normalized = String(cover.image_path).replaceAll("\\", "/");
-      const marker = "/workspace/";
-      const index = normalized.toLowerCase().lastIndexOf(marker);
-      if (index >= 0) {
-        return appendVersion(`/workspace/${normalized.slice(index + marker.length)}`);
-      }
-    }
-    return "";
-  }
 
   function normalizeImageRatio(value) {
     const ratio = String(value || "").trim();
@@ -240,85 +225,13 @@ export function createStoryView({
       _cover_status: src ? "selected" : "pending",
       _cover_version: Date.now(),
     };
+    delete story.cover.raw_image_path;
+    delete story.cover.raw_image_url;
+    delete story.cover._cover_error;
     write(story);
     return true;
   }
 
-  function getCoverImagePrompt() {
-    const story = readOrNull();
-    return String(story?.cover?.image_prompt || "");
-  }
-
-  function updateCoverImagePrompt(value, options = {}) {
-    const story = read();
-    story.cover = {
-      ...(story.cover || {}),
-      title: String(els.topic?.value || story.title || "").trim(),
-      image_prompt: String(value || "").trim(),
-      _cover_prompt_edited_at: Date.now(),
-    };
-    if (options.status) {
-      story.cover._cover_status = options.status;
-    }
-    if (options.error) {
-      story.cover._cover_error = options.error;
-    } else if (options.clearError) {
-      delete story.cover._cover_error;
-    }
-    write(story);
-    return true;
-  }
-
-  function setCoverStatus(status, error = "") {
-    const story = read();
-    story.cover = {
-      ...(story.cover || {}),
-      title: String(els.topic?.value || story.title || "").trim(),
-      _cover_status: status,
-    };
-    if (error) story.cover._cover_error = error;
-    else delete story.cover._cover_error;
-    write(story);
-    return true;
-  }
-
-  function renderCoverPanel() {
-    if (!els.coverPreview && !els.coverPrompt && !els.coverStatus) return;
-    const story = readOrNull();
-    const cover = story?.cover || {};
-    const src = coverImageSrc(cover);
-    if (els.coverPreview) {
-      els.coverPreview.innerHTML = src
-        ? `<img src="${src}" alt="视频封面" />`
-        : "<span>未选择封面</span>";
-    }
-    if (els.coverPrompt && document.activeElement !== els.coverPrompt) {
-      els.coverPrompt.value = String(cover.image_prompt || "");
-    }
-    if (els.coverMeta) els.coverMeta.textContent = `${String(els.coverPrompt?.value || cover.image_prompt || "").length} 字`;
-    if (els.coverStatus) {
-      const status = String(cover._cover_status || "");
-      const hasError = Boolean(cover._cover_error);
-      const label = hasError
-        ? "生成失败"
-        : status === "generating"
-          ? "生成中"
-          : src
-            ? "已选择"
-            : "未生成";
-      const className = hasError
-        ? "error"
-        : status === "generating"
-          ? "generating"
-          : src
-            ? "done"
-            : "pending";
-      els.coverStatus.textContent = label;
-      els.coverStatus.className = `state-badge ${className}`;
-      if (cover._cover_error) els.coverStatus.title = String(cover._cover_error);
-      else els.coverStatus.removeAttribute("title");
-    }
-  }
 
   function renderShotGrid() {
     if (!els.shotGrid) return;
@@ -347,10 +260,10 @@ export function createStoryView({
         || errorText.includes("提示词被内容安全策略拦截")
         || errorText.includes("不合规")
         || errorText.includes("防护限制");
-      const status = hasPolicyError
-        ? IMAGE_STATUS.policyError
-        : jobStatus
-          || (errorText
+      const status = jobStatus
+        || (hasPolicyError
+          ? IMAGE_STATUS.policyError
+          : errorText
             ? IMAGE_STATUS.error
             : finalImageStatus(shot, Boolean(src)));
       const attempt = shot._image_job?.attempt || shot._image_attempt || "";
@@ -418,6 +331,12 @@ export function createStoryView({
       const promptStatusHtml = promptStatusLabel
         ? `<div class="shot-prompt-status ${escapeHtml(promptStatus)}" title="${escapeHtml(promptStatusLabel)}">${escapeHtml(promptStatusLabel)}</div>`
         : "";
+      const referenceAsset = shot.primary_reference_asset || null;
+      const referenceName = referenceAsset?.name || "";
+      const referenceReason = shot._reference_selection?.reason || "";
+      const referenceHtml = referenceName
+        ? `<div class="shot-reference" title="${escapeHtml(referenceReason || referenceName)}">主参考图：${escapeHtml(referenceName)}</div>`
+        : "";
       const aiDisabled = promptStatus === "optimizing" ? " disabled" : "";
       const aiLabel = promptStatus === "optimizing" ? "优化中" : "AI";
       return `
@@ -443,6 +362,7 @@ export function createStoryView({
               </div>
               <p>${escapeHtml(promptPreview)}</p>
               ${promptStatusHtml}
+              ${referenceHtml}
             </div>
           </div>
         </article>
@@ -455,7 +375,6 @@ export function createStoryView({
   function onEditorInput() {
     updateMeta();
     if (getActiveTab() === "image") renderShotGrid();
-    renderCoverPanel();
     onStoryChanged();
   }
 
@@ -489,7 +408,6 @@ export function createStoryView({
     updatePromptMeta,
     renderShotGrid,
     updateSelection,
-    renderCoverPanel,
     onEditorInput,
     validate,
     withImageSize,
@@ -498,8 +416,5 @@ export function createStoryView({
     setShotImagePromptStatus,
     updateShotImagePrompt,
     setShotAsCover,
-    getCoverImagePrompt,
-    updateCoverImagePrompt,
-    setCoverStatus,
   };
 }

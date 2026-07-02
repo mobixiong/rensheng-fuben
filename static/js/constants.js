@@ -12,6 +12,7 @@ export const IMAGE_CONCURRENCY_LIMIT = 100;
 export const COPY_PROMPT_VERSION = 3;
 export const COPY_TO_STORY_PROMPT_VERSION = 3;
 export const IMPROVE_IMAGE_PROMPT_VERSION = 1;
+export const THEME_IDEA_PROMPT_VERSION = 1;
 
 export const COPY_PROMPT_PRESETS = ["reality", "xianxia"];
 export const IMAGE_SIZES = ["9:16", "1:1", "16:9"];
@@ -22,6 +23,7 @@ export const INTRO_TEMPLATES = [
   "life_copy_flash_horizontal",
   "life_copy_flash_vertical",
   "life_copy_staggered_mask",
+  "life_copy_mosaic_collage",
 ];
 
 export const DEFAULT_COPY_PROMPT_PRESET = "reality";

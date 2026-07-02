@@ -27,6 +27,24 @@
             </svg>
             <span>项目管理</span>
           </button>
+          <button class="tab-button" data-tab="auto" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M4 10h8M9 6l4 4-4 4" />
+              <circle cx="4" cy="10" r="1.6" />
+              <circle cx="15" cy="5" r="1.6" />
+              <circle cx="15" cy="15" r="1.6" />
+              <path d="M12 10c1.8 0 2.7-1.2 3-3M12 10c1.8 0 2.7 1.2 3 3" />
+            </svg>
+            <span>自动流水线</span>
+          </button>
+          <button class="tab-button" data-tab="assets" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="3" y="4" width="14" height="12" rx="2" />
+              <path d="M6 8h8M6 11h5M13.5 13.5l2 2" />
+              <circle cx="13" cy="12.5" r="2" />
+            </svg>
+            <span>资产库</span>
+          </button>
           <button class="tab-button active" data-tab="theme" type="button">
             <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
               <circle cx="10" cy="10" r="6.5" />
@@ -107,6 +125,179 @@
             <div class="project-grid" id="projectGrid"></div>
           </section>
 
+          <section class="tab-view" id="tab-assets">
+            <div class="page-head">
+              <div>
+                <h1>参考图资产库</h1>
+                <p>创建图片集合，给每张图命名，生成图片时自动选择最关键的一张参考图</p>
+              </div>
+            </div>
+
+            <section class="flow-section active">
+              <div class="flow-section-head">
+                <strong>项目绑定</strong>
+                <span class="state-badge editing">单主参考图</span>
+              </div>
+              <div class="reference-bind-grid">
+                <label class="field">
+                  <span>当前项目参考图集合</span>
+                  <select id="projectReferenceCollection">
+                    <option value="">不使用参考图集合</option>
+                  </select>
+                </label>
+                <label class="toggle-field">
+                  <input id="autoReferenceEnabled" type="checkbox" />
+                  <span>生成图片前自动选择 1 张主参考图</span>
+                </label>
+              </div>
+            </section>
+
+            <section class="flow-section">
+              <div class="flow-section-head">
+                <strong>新建集合</strong>
+                <button id="createAssetCollection" class="secondary-pill compact" type="button">创建集合</button>
+              </div>
+              <div class="reference-create-grid">
+                <label class="field">
+                  <span>集合名称</span>
+                  <input id="assetCollectionName" placeholder="例如：斗罗大陆" />
+                </label>
+                <label class="field">
+                  <span>集合说明</span>
+                  <input id="assetCollectionDescription" placeholder="例如：穿书斗罗类视频参考图" />
+                </label>
+              </div>
+            </section>
+
+            <section class="flow-section">
+              <div class="flow-section-head">
+                <strong>集合图片</strong>
+                <div class="panel-actions">
+                  <select id="assetCollectionPicker" class="compact-select" aria-label="选择资产集合">
+                    <option value="">暂无集合</option>
+                  </select>
+                  <span id="assetCollectionMeta" class="state-badge done">未选择集合</span>
+                </div>
+              </div>
+              <div class="reference-upload-grid">
+                <label class="field">
+                  <span>图片文件</span>
+                  <input id="assetUploadFile" type="file" accept="image/png,image/jpeg,image/webp" />
+                </label>
+                <label class="field">
+                  <span>图片名称</span>
+                  <input id="assetName" placeholder="例如：唐三、史莱克学院、武魂殿" />
+                </label>
+                <label class="field">
+                  <span>类型</span>
+                  <select id="assetType">
+                    <option value="character">人物</option>
+                    <option value="scene">场景</option>
+                    <option value="prop">道具</option>
+                    <option value="costume">服装</option>
+                    <option value="style">风格</option>
+                    <option value="other">其他</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>标签</span>
+                  <input id="assetTags" placeholder="逗号分隔，例如：主角, 蓝发, 学院" />
+                </label>
+                <label class="field full-field">
+                  <span>描述</span>
+                  <input id="assetDescription" placeholder="补充人物外观、服装、场景特点，帮助 LLM 判断" />
+                </label>
+                <button id="uploadReferenceAsset" class="primary-pill" type="button">上传参考图</button>
+              </div>
+              <div class="asset-grid" id="assetGrid"></div>
+            </section>
+          </section>
+
+          <section class="tab-view" id="tab-auto">
+            <div class="page-head">
+              <div>
+                <h1>自动流水线</h1>
+                <p>可以不输入内容，也可以只输入猎奇、温馨、斗罗大陆世界观这类顶层要求</p>
+              </div>
+              <div class="page-actions">
+                <button id="startAutoPipeline" class="primary-pill" type="button">开始流水线</button>
+                <button id="cancelAutoPipeline" class="secondary-pill" type="button">停止任务</button>
+              </div>
+            </div>
+
+            <div class="auto-pipeline-layout">
+              <section class="flow-section active">
+                <div class="flow-section-head">
+                  <strong>输入与配置</strong>
+                  <span class="state-badge editing">全自动</span>
+                </div>
+                <label class="field">
+                  <span>方向要求</span>
+                  <textarea id="autoBrief" class="prompt-textarea theme-brief-textarea" spellcheck="false" placeholder="可以留空；也可以输入：猎奇、温馨、猎奇，温馨、斗罗大陆世界观、现代都市反转强一点"></textarea>
+                </label>
+                <div class="auto-config-grid">
+                  <label class="field">
+                    <span>文案版本</span>
+                    <select id="autoCopyPreset">
+                      <option value="reality">现实版</option>
+                      <option value="xianxia">修仙版</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>图片比例</span>
+                    <select id="autoImageSize">
+                      <option value="9:16">9:16 竖屏</option>
+                      <option value="1:1">1:1 正方形</option>
+                      <option value="16:9">16:9 横屏</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>开头模板</span>
+                    <select id="autoIntroTemplate">
+                      <option value="life_copy_fast_cut">翻页快切模板</option>
+                      <option value="life_copy_expand_cut">展开快切模板</option>
+                      <option value="life_copy_flash_horizontal">横向羽化快闪模板</option>
+                      <option value="life_copy_flash_vertical">纵向羽化快闪模板</option>
+                      <option value="life_copy_staggered_mask">阶梯遮罩接力模板</option>
+                      <option value="life_copy_mosaic_collage">分块拼贴闪切模板</option>
+                      <option value="none">无模板</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>TTS 模板</span>
+                    <select id="autoTtsPreset">
+                      <option value="male_fast" data-voice="zh-CN-YunxiNeural" data-rate="+12%">男声快节奏</option>
+                      <option value="female_clear" data-voice="zh-CN-XiaoxiaoNeural" data-rate="+8%">女声清晰</option>
+                      <option value="male_steady" data-voice="zh-CN-YunjianNeural" data-rate="+0%">男声稳重</option>
+                      <option value="female_soft" data-voice="zh-CN-XiaoyiNeural" data-rate="+0%">女声柔和</option>
+                      <option value="custom">使用设置里的配音</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="auto-option-list">
+                  <label><input id="autoOptimizeImagePrompts" type="checkbox" checked /> 自动优化图片提示词</label>
+                  <label><input id="autoRenderAfterImages" type="checkbox" checked /> 图片完成后自动渲染视频</label>
+                </div>
+              </section>
+
+              <section class="flow-section">
+                <div class="flow-section-head">
+                  <strong>任务进度</strong>
+                  <span id="autoPipelineStatus" class="state-badge pending">未开始</span>
+                </div>
+                <div class="auto-progress-summary">
+                  <strong id="autoPipelineCurrent">等待开始</strong>
+                  <span id="autoPipelinePercent">0%</span>
+                </div>
+                <div class="render-progress-track" aria-hidden="true">
+                  <div id="autoPipelineProgressBar" class="render-progress-bar" style="width: 0%"></div>
+                </div>
+                <div id="autoPipelineSteps" class="auto-step-list"></div>
+                <pre id="autoPipelineResult" class="auto-result">{}</pre>
+              </section>
+            </div>
+          </section>
+
           <section class="tab-view active" id="tab-theme">
             <div class="page-head">
               <div>
@@ -122,9 +313,14 @@
             <section class="flow-section active">
               <div class="flow-section-head">
                 <strong>选题方向</strong>
-                <span class="state-badge editing">编辑中</span>
+                <div class="panel-actions">
+                  <button id="generateThemeIdeas" class="secondary-pill compact" type="button">AI 出方向</button>
+                  <button id="rerollThemeIdeas" class="text-action" type="button">换一批</button>
+                  <span class="state-badge editing">编辑中</span>
+                </div>
               </div>
               <textarea id="themeBrief" class="prompt-textarea theme-brief-textarea" spellcheck="false" placeholder="输入粗略方向，比如：高三差生、县城宝妈、35岁程序员、外卖骑手、负债创业者"></textarea>
+              <div class="theme-idea-candidates" id="themeIdeaCandidates" hidden></div>
             </section>
 
             <section class="flow-section">
@@ -324,6 +520,7 @@
                       <option value="life_copy_flash_horizontal">横向羽化快闪模板</option>
                       <option value="life_copy_flash_vertical">纵向羽化快闪模板</option>
                       <option value="life_copy_staggered_mask">阶梯遮罩接力模板</option>
+                      <option value="life_copy_mosaic_collage">分块拼贴闪切模板</option>
                       <option value="none">无模板</option>
                     </select>
                     <button id="previewIntroTemplates" class="secondary-pill compact" type="button">点击预览</button>
@@ -374,31 +571,6 @@
               </div>
               <div class="render-progress-track" aria-hidden="true">
                 <div id="renderProgressBar" class="render-progress-bar" style="width: 0%"></div>
-              </div>
-            </section>
-
-            <section class="cover-panel">
-              <div class="cover-preview" id="coverPreview">
-                <span>未选择封面</span>
-              </div>
-              <div class="cover-editor">
-                <div class="flow-section-head">
-                  <div>
-                    <strong>视频封面</strong>
-                    <p>标题使用当前视频主题，图片可在分镜工作台选择或重新生成</p>
-                  </div>
-                  <div class="panel-actions">
-                    <span id="coverStatus" class="state-badge pending">未生成</span>
-                    <button id="generateCover" class="secondary-pill" type="button">生成封面</button>
-                  </div>
-                </div>
-                <label class="field">
-                  <span>封面图片提示词</span>
-                  <textarea id="coverPrompt" class="prompt-textarea cover-prompt-textarea" spellcheck="false" placeholder="选择分镜后会自动带入该分镜图片提示词，也可以在这里单独修改封面提示词"></textarea>
-                </label>
-                <div class="panel-foot">
-                  <span id="coverMeta">0 字</span>
-                </div>
               </div>
             </section>
 
@@ -489,6 +661,22 @@
                     <option value="1:1">1:1 正方形</option>
                     <option value="16:9">16:9 横屏</option>
                   </select>
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-panel">
+              <div class="settings-title-row">
+                <h2>选题方向生成</h2>
+                <div class="settings-test-row">
+                  <button id="resetThemeIdeaPrompt" class="secondary-pill" type="button">恢复默认</button>
+                  <span id="themeIdeaPromptMeta" class="test-result">0 字</span>
+                </div>
+              </div>
+              <div class="settings-form prompt-settings-form">
+                <label class="field full-field">
+                  <span>生成提示词</span>
+                  <textarea id="themeIdeaPrompt" class="prompt-textarea settings-prompt-textarea" spellcheck="false"></textarea>
                 </label>
               </div>
             </section>
@@ -625,6 +813,6 @@
         <img id="imagePreviewFull" alt="分镜图片预览" />
       </section>
     </div>
-    <script type="module" src="/static/app.js"></script>
+    <script type="module" src="/static/app.js?v=20260702_image_poll_fix"></script>
   </body>
 </html>

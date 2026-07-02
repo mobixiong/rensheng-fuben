@@ -10,6 +10,7 @@ import {
   INTRO_TEMPLATES,
   PROJECT_PROGRESS_SAVE_INTERVAL_MS,
   PROJECT_SAVE_DELAY_MS,
+  THEME_IDEA_PROMPT_VERSION,
 } from "./constants.js";
 import { escapeHtml } from "./html.js";
 
@@ -60,6 +61,8 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       copy_text: els.copyOutput.value,
       story_json: els.editor.value,
       story: storyView.readOrNull(),
+      reference_collection_id: els.projectReferenceCollection?.value || "",
+      auto_reference_enabled: Boolean(els.autoReferenceEnabled?.checked),
       result_text: els.result.textContent,
       rendered_video: currentRenderedVideoUrl(),
       copy_prompt_preset: els.copyPromptPreset?.value || DEFAULT_COPY_PROMPT_PRESET,
@@ -71,6 +74,8 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       image_prompt: els.imagePrompt.value,
       improve_image_prompt: els.improveImagePrompt?.value || "",
       improve_image_prompt_version: IMPROVE_IMAGE_PROMPT_VERSION,
+      theme_idea_prompt: els.themeIdeaPrompt?.value || "",
+      theme_idea_prompt_version: THEME_IDEA_PROMPT_VERSION,
       image_size: els.imageSize?.value || DEFAULT_IMAGE_SIZE,
       intro_template: els.introTemplate?.value || "none",
       intro_image_seconds: els.introImageSeconds?.value || "0.3",
@@ -177,6 +182,14 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     ) {
       els.improveImagePrompt.value = projectStateData.improve_image_prompt;
     }
+    if (
+      els.themeIdeaPrompt
+      && typeof projectStateData.theme_idea_prompt === "string"
+      && projectStateData.theme_idea_prompt.trim()
+      && projectStateData.theme_idea_prompt_version === THEME_IDEA_PROMPT_VERSION
+    ) {
+      els.themeIdeaPrompt.value = projectStateData.theme_idea_prompt;
+    }
     if (els.imageSize && typeof projectStateData.image_size === "string") {
       els.imageSize.value = IMAGE_SIZES.includes(projectStateData.image_size)
         ? projectStateData.image_size
@@ -200,6 +213,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       if (exists) els.introSfxSelect.value = projectStateData.intro_sfx_id;
     }
     if (typeof projectStateData.result_text === "string") els.result.textContent = projectStateData.result_text;
+    state.referenceAssets?.applyProjectState?.(projectStateData);
     applyRenderedVideo(projectStateData.rendered_video || resultVideoUrl(projectStateData.result_text));
     const selectedShots = Array.isArray(projectStateData.selected_shots)
       ? projectStateData.selected_shots
@@ -220,7 +234,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
 
     storyView.updatePromptMeta();
     if (!options.preserveTab) {
-      setActiveTab(["project", "theme", "copy", "image", "video", "settings"].includes(projectStateData.active_tab) ? projectStateData.active_tab : "theme");
+      setActiveTab(["project", "auto", "assets", "theme", "copy", "image", "video", "settings"].includes(projectStateData.active_tab) ? projectStateData.active_tab : "theme");
     }
     state.restoringProject = false;
   }
@@ -247,7 +261,10 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
             <p>${escapeHtml(project.project_id)}</p>
             <div class="project-tile-foot">
               <span>${escapeHtml(project.saved_at || "未记录时间")}</span>
-              <button class="secondary-pill" type="button" data-open-project="${escapeHtml(project.project_id)}">打开</button>
+              <div class="project-tile-actions">
+                <button class="secondary-pill" type="button" data-open-project="${escapeHtml(project.project_id)}">打开</button>
+                <button class="secondary-pill danger" type="button" data-delete-project="${escapeHtml(project.project_id)}">删除</button>
+              </div>
             </div>
           </article>
         `;
@@ -255,8 +272,15 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     }
   }
 
-  async function loadState() {
-    const data = await api.fetchJson("/api/project/current").catch(() => null);
+  async function loadState(projectId = "") {
+    const data = projectId
+      ? await api.postJson("/api/project/activate", { project_id: projectId }).catch(() => null)
+      : await api.fetchJson("/api/project/current").catch(() => null);
+    if (projectId && data?.state) {
+      applyProjectState(data.state, { preserveTab: true });
+      await loadList();
+      return true;
+    }
     if (!data?.exists || !data.state) return false;
     applyProjectState(data.state);
     return true;
@@ -279,10 +303,36 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     }
   }
 
-  function createNew() {
+  async function remove(projectId) {
+    if (!projectId) return;
+    const confirmed = window.confirm("确定删除这个项目？删除后项目文件、图片、封面和渲染结果都会移除。");
+    if (!confirmed) return;
+    ui.setBusy(true);
+    ui.setStatus("删除项目", "busy");
+    try {
+      const wasActive = projectId === state.currentProjectId;
+      const data = await api.postJson("/api/project/delete", { project_id: projectId });
+      if (wasActive) {
+        createNew({ schedule: false });
+      }
+      await loadList();
+      if (els.projectPicker) els.projectPicker.value = state.currentProjectId || data.active_project_id || "";
+      ui.setStatus("就绪");
+    } catch (err) {
+      ui.setStatus("出错", "error");
+      els.result.textContent = String(err.message || err);
+    } finally {
+      ui.setBusy(false);
+    }
+  }
+
+  function createNew(options = {}) {
     state.currentProjectId = "";
     state.selectedShots = new Set();
     state.imageGenerationActive = false;
+    state.activeAutoPipelineJob = null;
+    state.referenceCollectionId = "";
+    state.autoReferenceEnabled = false;
     if (state.activeImageJobs instanceof Map) state.activeImageJobs.clear();
     if (els.themeBrief) els.themeBrief.value = "";
     if (els.themeIntro) els.themeIntro.value = "";
@@ -292,6 +342,8 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (els.themeIntroMirror) els.themeIntroMirror.textContent = "未填写主题介绍";
     els.copyOutput.value = "";
     els.result.textContent = "{}";
+    if (els.projectReferenceCollection) els.projectReferenceCollection.value = "";
+    if (els.autoReferenceEnabled) els.autoReferenceEnabled.checked = false;
     applyRenderedVideo("");
     storyView.write({ title: "", style_preset: "", shots: [] }, { scheduleSave: false });
     storyView.updatePromptMeta();
@@ -299,7 +351,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (els.projectPicker) els.projectPicker.value = "";
     setActiveTab("theme");
     settings.persist();
-    scheduleSave();
+    if (options.schedule !== false) scheduleSave();
   }
 
   return {
@@ -313,6 +365,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     loadList,
     loadState,
     activate,
+    remove,
     createNew,
   };
 }

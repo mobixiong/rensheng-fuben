@@ -7,6 +7,7 @@ import {
   DEFAULT_INTRO_TEMPLATE,
   GEMINI_WEB2API_DEFAULT_BASE_URL,
   GEMINI_WEB2API_DEFAULT_MODEL,
+  IMAGE_CONCURRENCY_LIMIT,
   IMAGE_SIZES,
   IMPROVE_IMAGE_PROMPT_VERSION,
   INTRO_TEMPLATES,
@@ -14,6 +15,7 @@ import {
   MINIMAX_TTS_DEFAULT_MODEL,
   MINIMAX_TTS_DEFAULT_VOICE_ID,
   SETTINGS_KEY,
+  THEME_IDEA_PROMPT_VERSION,
 } from "./constants.js";
 
 const SECRET_SETTINGS_KEY = `${SETTINGS_KEY}-session-secrets`;
@@ -74,6 +76,7 @@ export function createSettings({ els }) {
   let defaultCopyToStoryPrompt = "";
   let defaultImagePrompt = "";
   let defaultImproveImagePrompt = "";
+  let defaultThemeIdeaPrompt = "";
 
   function copyPromptPreset() {
     return COPY_PROMPT_PRESETS.includes(els.copyPromptPreset?.value) ? els.copyPromptPreset.value : DEFAULT_COPY_PROMPT_PRESET;
@@ -167,6 +170,13 @@ export function createSettings({ els }) {
       themeBrief: els.themeBrief?.value || "",
       themeIntro: els.themeIntro?.value || "",
       themeRevision: els.themeRevision?.value || "",
+      autoBrief: els.autoBrief?.value || "",
+      autoCopyPreset: els.autoCopyPreset?.value || DEFAULT_COPY_PROMPT_PRESET,
+      autoImageSize: els.autoImageSize?.value || DEFAULT_IMAGE_SIZE,
+      autoIntroTemplate: els.autoIntroTemplate?.value || DEFAULT_INTRO_TEMPLATE,
+      autoTtsPreset: els.autoTtsPreset?.value || "male_fast",
+      autoOptimizeImagePrompts: Boolean(els.autoOptimizeImagePrompts?.checked),
+      autoRenderAfterImages: Boolean(els.autoRenderAfterImages?.checked),
       textProvider: els.textProvider.value,
       baseUrl: els.baseUrl.value,
       model: els.model.value,
@@ -199,6 +209,8 @@ export function createSettings({ els }) {
       imagePrompt: els.imagePrompt.value,
       improveImagePrompt: els.improveImagePrompt?.value || "",
       improveImagePromptVersion: IMPROVE_IMAGE_PROMPT_VERSION,
+      themeIdeaPrompt: els.themeIdeaPrompt?.value || "",
+      themeIdeaPromptVersion: THEME_IDEA_PROMPT_VERSION,
     });
     writeJson(sessionStorage, SECRET_SETTINGS_KEY, {
       apiKey: els.apiKey.value,
@@ -230,6 +242,13 @@ export function createSettings({ els }) {
       if (els.themeBrief && typeof s.themeBrief === "string") els.themeBrief.value = s.themeBrief;
       if (els.themeIntro && typeof s.themeIntro === "string") els.themeIntro.value = s.themeIntro;
       if (els.themeRevision && typeof s.themeRevision === "string") els.themeRevision.value = s.themeRevision;
+      if (els.autoBrief && typeof s.autoBrief === "string") els.autoBrief.value = s.autoBrief;
+      if (els.autoCopyPreset) els.autoCopyPreset.value = COPY_PROMPT_PRESETS.includes(s.autoCopyPreset) ? s.autoCopyPreset : DEFAULT_COPY_PROMPT_PRESET;
+      if (els.autoImageSize) els.autoImageSize.value = IMAGE_SIZES.includes(s.autoImageSize) ? s.autoImageSize : DEFAULT_IMAGE_SIZE;
+      if (els.autoIntroTemplate) els.autoIntroTemplate.value = INTRO_TEMPLATES.includes(s.autoIntroTemplate) ? s.autoIntroTemplate : DEFAULT_INTRO_TEMPLATE;
+      if (els.autoTtsPreset) els.autoTtsPreset.value = s.autoTtsPreset || "male_fast";
+      if (els.autoOptimizeImagePrompts) els.autoOptimizeImagePrompts.checked = s.autoOptimizeImagePrompts !== false;
+      if (els.autoRenderAfterImages) els.autoRenderAfterImages.checked = s.autoRenderAfterImages !== false;
       els.baseUrl.value = s.baseUrl || "";
       els.model.value = s.model || "";
       els.apiKey.value = secrets.apiKey || s.apiKey || "";
@@ -277,18 +296,22 @@ export function createSettings({ els }) {
       if (els.improveImagePrompt && s.improveImagePrompt && s.improveImagePromptVersion === IMPROVE_IMAGE_PROMPT_VERSION) {
         els.improveImagePrompt.value = s.improveImagePrompt;
       }
+      if (els.themeIdeaPrompt && s.themeIdeaPrompt && s.themeIdeaPromptVersion === THEME_IDEA_PROMPT_VERSION) {
+        els.themeIdeaPrompt.value = s.themeIdeaPrompt;
+      }
       applyTextProviderDefaults();
       updateTtsProviderVisibility();
     } catch {}
   }
 
   async function loadPromptDefaults(fetchJson, updatePromptMeta) {
-    const [copyData, copyXianxiaData, copyToStoryData, imageData, improveImageData] = await Promise.all([
+    const [copyData, copyXianxiaData, copyToStoryData, imageData, improveImageData, themeIdeaData] = await Promise.all([
       fetchJson("/api/prompt/default"),
       fetchJson("/api/prompt/copy-xianxia"),
       fetchJson("/api/prompt/copy-to-story"),
       fetchJson("/api/prompt/image"),
       fetchJson("/api/prompt/improve-image"),
+      fetchJson("/api/prompt/theme-ideas"),
     ]);
     defaultCopyPrompts = {
       reality: copyData.prompt || "",
@@ -298,6 +321,7 @@ export function createSettings({ els }) {
     defaultCopyToStoryPrompt = copyToStoryData.prompt || "";
     defaultImagePrompt = imageData.prompt || "";
     defaultImproveImagePrompt = improveImageData.prompt || "";
+    defaultThemeIdeaPrompt = themeIdeaData.prompt || "";
     if (!els.copyPrompt.value.trim()) els.copyPrompt.value = defaultCopyPrompt;
     if (els.copyToStoryPrompt && !els.copyToStoryPrompt.value.trim()) {
       els.copyToStoryPrompt.value = defaultCopyToStoryPrompt;
@@ -307,6 +331,10 @@ export function createSettings({ els }) {
     syncImageStylePresetPrompt(updatePromptMeta);
     if (els.improveImagePrompt && !els.improveImagePrompt.value.trim()) {
       els.improveImagePrompt.value = defaultImproveImagePrompt;
+      persist();
+    }
+    if (els.themeIdeaPrompt && !els.themeIdeaPrompt.value.trim()) {
+      els.themeIdeaPrompt.value = defaultThemeIdeaPrompt;
       persist();
     }
     updatePromptMeta();
@@ -359,6 +387,14 @@ export function createSettings({ els }) {
     scheduleSave();
   }
 
+  function resetThemeIdeaPrompt(updatePromptMeta, scheduleSave) {
+    if (!els.themeIdeaPrompt) return;
+    els.themeIdeaPrompt.value = defaultThemeIdeaPrompt;
+    persist();
+    updatePromptMeta();
+    scheduleSave();
+  }
+
   function textPayload() {
     return {
       topic: els.topic.value.trim(),
@@ -402,6 +438,20 @@ export function createSettings({ els }) {
       model: els.model.value.trim(),
       api_key: els.apiKey.value.trim(),
       temperature: 0.7,
+    };
+  }
+
+  function themeIdeasPayload(extra = {}) {
+    return {
+      brief: els.themeBrief?.value.trim() || "",
+      provider: els.textProvider.value,
+      base_url: els.baseUrl.value.trim(),
+      model: els.model.value.trim(),
+      api_key: els.apiKey.value.trim(),
+      temperature: 0.8,
+      system_prompt: els.themeIdeaPrompt?.value || "",
+      count: 6,
+      ...extra,
     };
   }
 
@@ -464,6 +514,54 @@ export function createSettings({ els }) {
     };
   }
 
+  function autoPipelinePayload() {
+    const ttsOption = els.autoTtsPreset?.selectedOptions?.[0];
+    const useMinimax = els.ttsProvider?.value === "minimax" && els.autoTtsPreset?.value === "custom";
+    return {
+      project_id: "",
+      brief: els.autoBrief?.value.trim() || "",
+      copy_preset: COPY_PROMPT_PRESETS.includes(els.autoCopyPreset?.value) ? els.autoCopyPreset.value : copyPromptPreset(),
+      image_size: IMAGE_SIZES.includes(els.autoImageSize?.value) ? els.autoImageSize.value : (els.imageSize?.value || DEFAULT_IMAGE_SIZE),
+      reference_collection_id: els.projectReferenceCollection?.value || "",
+      auto_reference_enabled: Boolean(els.autoReferenceEnabled?.checked && els.projectReferenceCollection?.value),
+      intro_template: INTRO_TEMPLATES.includes(els.autoIntroTemplate?.value) ? els.autoIntroTemplate.value : (els.introTemplate?.value || DEFAULT_INTRO_TEMPLATE),
+      intro_image_seconds: Number.parseFloat(els.introImageSeconds?.value || "0.3") || 0.3,
+      tts_preset: els.autoTtsPreset?.value || els.ttsPreset?.value || "custom",
+      voice: ttsOption?.dataset?.voice || els.voice?.value || "zh-CN-YunxiNeural",
+      rate: ttsOption?.dataset?.rate || els.rate?.value || "+12%",
+      bgm_id: els.bgmSelect?.value || "none",
+      intro_sfx_id: els.introSfxSelect?.value || "default",
+      auto_optimize_image_prompts: els.autoOptimizeImagePrompts?.checked !== false,
+      render_after_images: els.autoRenderAfterImages?.checked !== false,
+      image_concurrency: IMAGE_CONCURRENCY_LIMIT,
+      theme_idea_prompt: els.themeIdeaPrompt?.value || "",
+      copy_prompt: els.copyPrompt?.value || "",
+      copy_to_story_prompt: els.copyToStoryPrompt?.value || "",
+      image_prompt: els.imagePrompt?.value || "",
+      improve_image_prompt: els.improveImagePrompt?.value || "",
+      text_config: {
+        provider: els.textProvider.value,
+        base_url: els.baseUrl.value.trim(),
+        model: els.model.value.trim(),
+        api_key: els.apiKey.value.trim(),
+      },
+      image_config: {
+        provider: els.imageProvider.value,
+        base_url: els.imageBaseUrl.value.trim(),
+        model: els.imageModel.value.trim(),
+        api_key: els.imageApiKey.value.trim(),
+      },
+      tts_config: {
+        provider: useMinimax ? "minimax" : "edge",
+        base_url: els.ttsBaseUrl?.value.trim() || "",
+        api_key: els.ttsApiKey?.value.trim() || "",
+        group_id: els.ttsGroupId?.value.trim() || "",
+        model: els.ttsModel?.value.trim() || "",
+        voice_id: els.ttsVoiceId?.value.trim() || "",
+      },
+    };
+  }
+
   return {
     applyTextProviderDefaults,
     persist,
@@ -476,15 +574,18 @@ export function createSettings({ els }) {
     applyImageStylePreset,
     syncImageStylePresetPrompt,
     resetImproveImagePrompt,
+    resetThemeIdeaPrompt,
     textPayload,
     storyPayload,
     themePayload,
+    themeIdeasPayload,
     themeRevisionPayload,
     textConnectionPayload,
     copyToStoryPayload,
     imageConnectionPayload,
     imagePayload,
     improveImagePromptPayload,
+    autoPipelinePayload,
     applyTtsProviderDefaults,
     updateTtsProviderVisibility,
   };

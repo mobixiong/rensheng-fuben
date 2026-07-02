@@ -41,3 +41,10 @@ export async function postForm(url, formData) {
   if (!res.ok) throw buildApiError(data, res.status);
   return data;
 }
+
+export async function deleteJson(url) {
+  const res = await fetch(url, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw buildApiError(data, res.status);
+  return data;
+}

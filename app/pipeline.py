@@ -22,7 +22,7 @@ from .intro_templates import (
     render_intro_template,
     render_still_clip,
 )
-from .paths import WORKSPACE
+from .paths import PROJECTS_DIR, WORKSPACE
 from .render_constants import H, W, render_size
 from .subtitle_renderer import SUBTITLE_RENDER_VERSION, write_subtitles
 from .tts_adapter import TtsConfig, synthesize_tts
@@ -397,6 +397,20 @@ def _workspace_project_id(value: str | None) -> str:
     return "/".join(parts)
 
 
+def _workspace_project_ref(project_id: str) -> str:
+    if project_id.startswith("projects/"):
+        return project_id
+    if (PROJECTS_DIR / project_id).exists():
+        return f"projects/{project_id}"
+    return project_id
+
+
+def _public_project_id(project_ref: str) -> str:
+    if project_ref.startswith("projects/"):
+        return project_ref[len("projects/"):]
+    return project_ref
+
+
 def normalize_story(story: dict[str, Any]) -> dict[str, Any]:
     title = str(story.get("title") or "人生副本样片")
     shots = story.get("shots") or []
@@ -503,7 +517,10 @@ def render_intro_previews(
     image_seconds = normalize_intro_image_seconds(image_seconds)
     canvas_size = render_size(image_size or story.get("image_size"))
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_preview_") + uuid.uuid4().hex[:8]
-    project_dir = WORKSPACE / project_id
+    project_ref = _workspace_project_ref(project_id)
+    public_project_id = _public_project_id(project_ref)
+    project_dir = WORKSPACE / project_ref
+    workspace_url = f"/workspace/{project_ref}"
     preview_dir = project_dir / "previews" / "intro_templates"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
@@ -523,13 +540,13 @@ def render_intro_previews(
         render_intro_template(template, image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, canvas_size)
         items.append({
             "id": template,
-            "video": f"/workspace/{project_id}/previews/intro_templates/{template}.mp4",
+            "video": f"{workspace_url}/previews/intro_templates/{template}.mp4",
         })
     preview_image_dir = preview_dir / "images"
     if preview_image_dir.exists():
         shutil.rmtree(preview_image_dir)
     return {
-        "project_id": project_id,
+        "project_id": public_project_id,
         "duration_sec": duration,
         "image_seconds": image_seconds,
         "items": items,
@@ -562,7 +579,10 @@ def render_story(
         progress_callback(payload)
 
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
-    project_dir = WORKSPACE / project_id
+    project_ref = _workspace_project_ref(project_id)
+    public_project_id = _public_project_id(project_ref)
+    project_dir = WORKSPACE / project_ref
+    workspace_url = f"/workspace/{project_ref}"
     images = project_dir / "images"
     audio_dir = project_dir / "audio"
     clips_dir = project_dir / "clips"
@@ -819,14 +839,14 @@ def render_story(
         report(0.98, "清理文件", "正在清理临时渲染文件")
         _cleanup_intermediate(project_dir, audio_dir, clips_dir, merged_path)
     return {
-        "project_id": project_id,
+        "project_id": public_project_id,
         "title": clean["title"],
         "duration_sec": round(total, 2),
         "shots": len(shots),
-        "script_json": f"/workspace/{project_id}/script.json",
-        "srt": f"/workspace/{project_id}/subtitle.srt",
-        "voice": f"/workspace/{project_id}/voice.mp3",
-        "video": f"/workspace/{project_id}/final.mp4",
+        "script_json": f"{workspace_url}/script.json",
+        "srt": f"{workspace_url}/subtitle.srt",
+        "voice": f"{workspace_url}/voice.mp3",
+        "video": f"{workspace_url}/final.mp4",
         "cleanup_intermediate": cleanup_intermediate,
         "intro_template": intro_template,
         "intro_image_seconds": intro_image_seconds,

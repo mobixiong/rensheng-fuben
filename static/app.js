@@ -3,7 +3,9 @@ import { $ , createUi } from "./js/ui.js";
 import { createSettings } from "./js/settings.js";
 import { createStoryView } from "./js/story-view.js";
 import { createProjectStore } from "./js/project-store.js";
-import { createWorkflow } from "./js/workflow.js";
+import { createReferenceAssets } from "./js/reference-assets.js";
+import { createWorkflow } from "./js/workflow.js?v=20260702_image_poll_fix";
+import { createThemeWorkflow } from "./js/workflow-theme.js?v=20260702_theme_direction_fix";
 
 const ui = createUi();
 const { els } = ui;
@@ -16,7 +18,10 @@ const state = {
   currentProjectId: "",
   imageGenerationActive: false,
   activeImageJobs: new Map(),
+  activeAutoPipelineJob: null,
   projectSaveQueue: Promise.resolve(),
+  referenceCollectionId: "",
+  autoReferenceEnabled: false,
 };
 
 let projectStore;
@@ -173,7 +178,6 @@ function setActiveTab(tab) {
   state.activeTab = tab;
   ui.setTab(tab);
   if (tab === "image") storyView.renderShotGrid();
-  if (tab === "video") storyView.renderCoverPanel();
 }
 
 function syncThemeMirrors() {
@@ -202,7 +206,16 @@ projectStore = createProjectStore({
   setActiveTab,
 });
 
-const workflow = createWorkflow({
+state.referenceAssets = createReferenceAssets({
+  els,
+  ui,
+  api,
+  state,
+  projectStore,
+  storyView,
+});
+
+const workflowContext = {
   els,
   ui,
   api,
@@ -211,7 +224,22 @@ const workflow = createWorkflow({
   projectStore,
   state,
   setActiveTab,
-});
+};
+
+const workflow = createWorkflow(workflowContext);
+
+if (typeof workflow.generateThemeIdeas !== "function") {
+  Object.assign(workflow, createThemeWorkflow(workflowContext));
+}
+
+function runThemeIdeas(options = {}) {
+  if (typeof workflow.generateThemeIdeas !== "function") {
+    ui.setStatus("AI 出方向模块未加载，请刷新页面", "error");
+    if (els.result) els.result.textContent = "AI 出方向模块未加载：workflow.generateThemeIdeas 不存在。";
+    return;
+  }
+  workflow.generateThemeIdeas(options);
+}
 
 function bindEvents() {
   document.addEventListener("click", (event) => {
@@ -219,11 +247,35 @@ function bindEvents() {
     if (tabButton) setActiveTab(tabButton.dataset.tab);
 
     const openProjectButton = event.target.closest("[data-open-project]");
-    if (openProjectButton) projectStore.activate(openProjectButton.dataset.openProject);
+    if (openProjectButton) {
+      workflow.clearThemeIdeas?.();
+      projectStore.activate(openProjectButton.dataset.openProject).then(() => {
+        workflow.restoreActiveImageJobs?.();
+        workflow.restoreActiveAutoPipelineJobs?.();
+      });
+      return;
+    }
+
+    const deleteProjectButton = event.target.closest("[data-delete-project]");
+    if (deleteProjectButton) {
+      workflow.clearThemeIdeas?.();
+      projectStore.remove(deleteProjectButton.dataset.deleteProject);
+      return;
+    }
 
     const aiPromptButton = event.target.closest("[data-ai-shot-prompt]");
     if (aiPromptButton) {
       workflow.improveShotImagePrompt(Number(aiPromptButton.dataset.aiShotPrompt));
+      return;
+    }
+
+    const themeIdeaButton = event.target.closest("[data-theme-idea-action]");
+    if (themeIdeaButton) {
+      const index = Number(themeIdeaButton.dataset.themeIdeaIndex);
+      const action = themeIdeaButton.dataset.themeIdeaAction;
+      if (action === "adopt") workflow.adoptThemeIdea(index);
+      if (action === "refine") runThemeIdeas({ refineIndex: index });
+      if (action === "reroll") runThemeIdeas({ rerollIndex: index });
       return;
     }
 
@@ -268,6 +320,10 @@ function bindEvents() {
   });
 
   $("loadExample").addEventListener("click", workflow.loadExample);
+  $("startAutoPipeline")?.addEventListener("click", workflow.startAutoPipeline);
+  $("cancelAutoPipeline")?.addEventListener("click", workflow.cancelAutoPipeline);
+  $("generateThemeIdeas")?.addEventListener("click", () => runThemeIdeas());
+  $("rerollThemeIdeas")?.addEventListener("click", () => runThemeIdeas({ reroll: true }));
   $("generateTheme")?.addEventListener("click", workflow.generateTheme);
   $("rerollTheme")?.addEventListener("click", () => workflow.generateTheme({ reroll: true }));
   $("reviseTheme")?.addEventListener("click", workflow.reviseTheme);
@@ -280,7 +336,6 @@ function bindEvents() {
   $("refreshGallery").addEventListener("click", storyView.renderShotGrid);
   $("validate").addEventListener("click", () => storyView.validate(els.result, ui.setStatus));
   $("render").addEventListener("click", workflow.renderVideo);
-  $("generateCover")?.addEventListener("click", workflow.generateCoverImage);
   $("previewIntroTemplates")?.addEventListener("click", workflow.previewIntroTemplates);
   $("uploadBgm")?.addEventListener("click", workflow.uploadBgm);
   $("uploadIntroSfx")?.addEventListener("click", workflow.uploadIntroSfx);
@@ -304,9 +359,18 @@ function bindEvents() {
     await projectStore.saveNow();
     ui.setStatus("就绪");
   });
-  $("newProject").addEventListener("click", projectStore.createNew);
+  $("newProject").addEventListener("click", () => {
+    workflow.clearThemeIdeas?.();
+    projectStore.createNew();
+  });
   els.projectPicker.addEventListener("change", () => {
-    if (els.projectPicker.value) projectStore.activate(els.projectPicker.value);
+    if (els.projectPicker.value) {
+      workflow.clearThemeIdeas?.();
+      projectStore.activate(els.projectPicker.value).then(() => {
+        workflow.restoreActiveImageJobs?.();
+        workflow.restoreActiveAutoPipelineJobs?.();
+      });
+    }
   });
 
   $("openSettings")?.addEventListener("click", ui.openSettings);
@@ -331,6 +395,9 @@ function bindEvents() {
   });
   $("resetImproveImagePrompt")?.addEventListener("click", () => {
     settings.resetImproveImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
+  });
+  $("resetThemeIdeaPrompt")?.addEventListener("click", () => {
+    settings.resetThemeIdeaPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
 
   document.addEventListener("focusout", (event) => {
@@ -363,8 +430,9 @@ function bindEvents() {
     storyView.updatePromptMeta();
     projectStore.scheduleSave();
   });
-  els.coverPrompt?.addEventListener("input", () => {
-    storyView.updateCoverImagePrompt(els.coverPrompt.value, { clearError: true });
+  els.themeIdeaPrompt?.addEventListener("input", () => {
+    settings.persist();
+    storyView.updatePromptMeta();
     projectStore.scheduleSave();
   });
   els.themeBrief?.addEventListener("input", () => {
@@ -381,6 +449,13 @@ function bindEvents() {
     settings.persist();
     projectStore.scheduleSave();
   });
+  for (const id of ["autoBrief", "autoCopyPreset", "autoImageSize", "autoIntroTemplate", "autoTtsPreset"]) {
+    $(id)?.addEventListener("input", settings.persist);
+    $(id)?.addEventListener("change", settings.persist);
+  }
+  for (const id of ["autoOptimizeImagePrompts", "autoRenderAfterImages"]) {
+    $(id)?.addEventListener("change", settings.persist);
+  }
   els.topic.addEventListener("input", () => {
     syncThemeMirrors();
     settings.persist();
@@ -444,6 +519,7 @@ function bindEvents() {
     settings.applyTextProviderDefaults();
     settings.persist();
   });
+  state.referenceAssets?.bindEvents();
   document.addEventListener("keydown", (event) => {
     const promptEditor = event.target.closest?.("[data-shot-prompt-editor]");
     if (promptEditor) {
@@ -476,6 +552,7 @@ async function boot() {
   restoreLayoutPrefs();
   await workflow.loadBgmOptions().catch(() => null);
   await workflow.loadIntroSfxOptions().catch(() => null);
+  await state.referenceAssets?.loadCollections?.().catch(() => null);
   settings.load();
   applyTtsPreset();
   settings.updateTtsProviderVisibility();
@@ -484,7 +561,9 @@ async function boot() {
   const restored = await projectStore.loadState();
   if (!restored) await workflow.loadExample();
   await projectStore.loadList();
-  ui.setStatus("就绪");
+  await workflow.restoreActiveImageJobs?.();
+  await workflow.restoreActiveAutoPipelineJobs?.();
+  if (!state.activeAutoPipelineJob) ui.setStatus("就绪");
 }
 
 boot().catch((err) => {

@@ -10,7 +10,7 @@
 
 项目代码不包含、也不授权任何第三方音乐、音效、图片、字体、视频、模型服务或平台接口资源。使用者接入的 API、模型、提示词、生成内容及本地素材，均需自行确认来源合法并取得相应授权。
 
-请勿将未获得明确再分发授权的音频、图片、视频等素材提交到公开仓库。因使用本项目或相关素材产生的版权、合规、平台风控及其他责任，由使用者自行承担。
+本仓库仅分发项目代码；示例、用户本地上传或自行接入生成的素材不随本项目授权。使用者在接入服务、生成内容或发布作品时，应自行确认授权、服务条款和平台规则。
 
 如本项目内容无意中侵犯了你的合法权益，请联系处理。
 
@@ -97,6 +97,119 @@ Authorization: Bearer {LLM_API_KEY}
 - 图片提示词：用于“批量生成”和“重抽选中图片”，默认来自 `prompts/image_style.md`。
 
 高级区里的“分镜数据”是内部中间数据，用于承接图片和视频流程。通常不需要手写；如果要重新拆分已有口播，可以点“由口播拆分镜”。
+
+## 全自动流水线设计
+
+后续会在现有手动工作台外层增加“自动流水线”模式。它不是让前端连续点击现有按钮，而是由后端创建可恢复任务，自动完成从选题到成片的完整流程。
+
+详细落地方案见：[`docs/auto_pipeline_implementation.md`](docs/auto_pipeline_implementation.md)。
+
+### 用户输入
+
+流水线必须支持用户什么都不输入，直接点击开始。此时系统自动生成候选选题方向，并自动选择一个方向继续往下跑。
+
+用户也可以只输入很抽象的顶层要求，例如：
+
+```text
+猎奇
+温馨
+猎奇，温馨
+斗罗大陆世界观
+现代都市，反转强一点
+县城，宝妈，压抑但结尾温暖
+```
+
+这些输入不是最终主题，而是“顶层约束”。系统需要把它们逐步收敛为可生成口播的明确主题和主题介绍。
+
+### 自动流程
+
+```text
+顶层要求或空输入
+-> 生成候选选题方向
+-> 自动选择方向
+-> 生成主题和主题介绍
+-> 生成口播文案
+-> 拆分镜
+-> AI 优化图片提示词
+-> 生成分镜图片
+-> 自动选择封面
+-> 渲染 MP4
+-> 保存项目和产物
+```
+
+第一版默认策略：
+
+- 用户无输入时，自动生成 6 条现实感强、适合“人生副本”的候选方向。
+- 用户有输入时，把输入当作风格、世界观、情绪或题材约束，而不是当作完整主题。
+- 自动采用第 1 条候选方向；后续可以升级为“AI 评分后选择最佳方向”。
+- 图片提示词全部自动优化一次。
+- 图片生成失败自动重试；如果是提示词合规问题，先重新优化提示词再重试。
+- 默认选择第一张成功生成的分镜图作为视频封面。
+- 图片成功率足够时才进入渲染；失败镜头需要记录原因。
+
+### 后端任务化
+
+全自动流水线必须由后端执行，前端只负责创建任务和轮询状态。这样刷新页面、关闭浏览器或网络波动时，任务状态仍然保存在项目目录里。
+
+建议新增：
+
+```text
+app/auto_pipeline_jobs.py
+```
+
+任务状态保存到：
+
+```text
+workspace/projects/{项目ID}/jobs/auto_pipeline_{任务ID}.json
+```
+
+状态结构示例：
+
+```json
+{
+  "job_id": "auto_20260702_153000_ab12",
+  "project_id": "20260702_153000_人生副本_ab12",
+  "status": "running",
+  "current_step": "generate_images",
+  "input": {
+    "brief": "猎奇，温馨",
+    "copy_preset": "reality",
+    "image_size": "9:16",
+    "intro_template": "life_copy_fast_cut",
+    "tts_preset": "male_fast",
+    "bgm_id": "none"
+  },
+  "steps": [
+    { "key": "theme_ideas", "name": "生成选题方向", "status": "done" },
+    { "key": "select_idea", "name": "选择方向", "status": "done" },
+    { "key": "theme", "name": "生成主题", "status": "done" },
+    { "key": "copy", "name": "生成口播", "status": "done" },
+    { "key": "storyboard", "name": "拆分镜", "status": "done" },
+    { "key": "improve_prompts", "name": "优化图片提示词", "status": "done" },
+    { "key": "images", "name": "生成图片", "status": "running" },
+    { "key": "cover", "name": "选择封面", "status": "pending" },
+    { "key": "render", "name": "渲染视频", "status": "pending" }
+  ],
+  "result": {
+    "topic": "",
+    "video_url": "",
+    "project_url": ""
+  },
+  "error": ""
+}
+```
+
+每一步都要做成幂等：任务恢复时先检查已有产物，已有主题、口播、分镜、图片或 MP4 时直接跳过对应步骤，避免中断后从头消耗 API。
+
+### API 草案
+
+```text
+POST /api/auto-pipeline/jobs
+GET  /api/auto-pipeline/jobs
+GET  /api/auto-pipeline/jobs/{project_id}/{job_id}
+POST /api/auto-pipeline/jobs/{project_id}/{job_id}/cancel
+POST /api/auto-pipeline/jobs/{project_id}/{job_id}/resume
+```
 
 ## 项目保存
 
@@ -245,7 +358,7 @@ MiniMax 使用官方同步语音合成接口 `POST /v1/t2a_v2`，工作台请求
 - 背景 BGM：内置目录 `assets/bgm/`，用户上传目录 `workspace/bgm/`
 - 开头音效：默认使用 `assets/sfx/gear.mp3`，用户上传目录 `workspace/sfx/`
 
-用户上传音频支持 `mp3`、`wav`、`m4a`、`aac`、`flac`、`ogg`，单个文件上限为 `100MB`。`workspace/` 已在 `.gitignore` 中忽略，上传素材不会进入公开仓库。
+用户上传音频支持 `mp3`、`wav`、`m4a`、`aac`、`flac`、`ogg`，单个文件上限为 `100MB`。`workspace/` 已在 `.gitignore` 中忽略，上传素材会保留在本地工作区。
 
 ## 分镜数据格式
 
@@ -278,6 +391,7 @@ GET  /api/projects
 GET  /api/project/current
 POST /api/project/current
 POST /api/project/activate
+POST /api/project/delete
 GET  /api/prompt/default
 GET  /api/prompt/copy-xianxia
 GET  /api/prompt/copy-to-story
@@ -310,7 +424,7 @@ workspace/{project_id}/final.mp4
 
 ## 开源注意事项
 
-不要提交 `.env`、API Key、本地生成的 `workspace/`、音频、字幕、视频或任何私有凭据。
+仓库默认只分发源码、提示词模板和必要的示例文件。`.env`、API Key、本地生成的 `workspace/`、音频、字幕、视频及其他私有凭据均不属于公开分发内容。
 
 ## 交流群
 

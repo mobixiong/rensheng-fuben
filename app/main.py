@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .paths import ROOT, STATIC, WORKSPACE
 from .routes_assets import router as assets_router
+from .routes_auto_pipeline import router as auto_pipeline_router
 from .routes_generation import router as generation_router
 from .routes_project import router as project_router
 from .routes_prompts import router as prompts_router
@@ -31,6 +32,7 @@ app.add_middleware(
 app.include_router(project_router)
 app.include_router(prompts_router)
 app.include_router(assets_router)
+app.include_router(auto_pipeline_router)
 app.include_router(generation_router)
 app.include_router(render_router)
 

@@ -28,6 +28,18 @@ class ThemePlanRequest(BaseModel):
     system_prompt: str | None = None
 
 
+class ThemeIdeasRequest(BaseModel):
+    brief: str = ""
+    provider: str = "openai"
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    temperature: float = 0.8
+    system_prompt: str | None = None
+    count: int = Field(default=6, ge=1, le=12)
+    instruction: str = ""
+
+
 class ThemeReviseRequest(ThemePlanRequest):
     topic: str = Field(min_length=1)
     intro: str = Field(min_length=1)
@@ -56,16 +68,18 @@ class ImageRegenerateRequest(ImageGenerateRequest):
     shot_index: int = Field(ge=0)
 
 
-class CoverGenerateRequest(ImageGenerateRequest):
-    topic: str = ""
-    cover: dict[str, Any] | None = None
-
-
-class CoverApplyRequest(BaseModel):
-    story: dict[str, Any]
-    cover: dict[str, Any] | None = None
-    topic: str = ""
-    size: str = "9:16"
+class ImageJobCreateRequest(ImageGenerateRequest):
+    project_id: str = ""
+    mode: str = "generate_missing"
+    shot_indexes: list[int] | None = None
+    concurrency: int = Field(default=100, ge=1, le=100)
+    reference_collection_id: str = ""
+    auto_reference_enabled: bool = False
+    reference_provider: str = "openai"
+    reference_base_url: str = ""
+    reference_api_key: str = ""
+    reference_model: str = ""
+    reference_temperature: float = 0
 
 
 class ImageConnectionRequest(BaseModel):
@@ -121,5 +135,41 @@ class IntroPreviewRequest(BaseModel):
     image_size: str = "9:16"
 
 
+class AutoPipelineRequest(BaseModel):
+    project_id: str = ""
+    brief: str = ""
+    copy_preset: str = "reality"
+    image_size: str = "9:16"
+    reference_collection_id: str = ""
+    auto_reference_enabled: bool = False
+    intro_template: str = "none"
+    intro_image_seconds: float = 0.3
+    tts_preset: str = "custom"
+    voice: str = "zh-CN-YunxiNeural"
+    rate: str = "+12%"
+    bgm_id: str = "none"
+    intro_sfx_id: str = "default"
+    auto_optimize_image_prompts: bool = True
+    render_after_images: bool = True
+    image_concurrency: int = Field(default=100, ge=1, le=100)
+    theme_idea_prompt: str = ""
+    copy_prompt: str = ""
+    copy_to_story_prompt: str = ""
+    image_prompt: str = ""
+    improve_image_prompt: str = ""
+    text_config: dict[str, Any] = Field(default_factory=dict)
+    image_config: dict[str, Any] = Field(default_factory=dict)
+    tts_config: dict[str, Any] = Field(default_factory=dict)
+
+
 class ProjectActivateRequest(BaseModel):
     project_id: str = Field(min_length=1)
+
+
+class ProjectDeleteRequest(BaseModel):
+    project_id: str = Field(min_length=1)
+
+
+class ReferenceCollectionCreateRequest(BaseModel):
+    name: str = Field(min_length=1)
+    description: str = ""

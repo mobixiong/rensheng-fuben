@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from .errors import RenderError
 from .pipeline import render_intro_previews, render_story
 from .render_service import create_render_job, get_render_job
+from .render_validation import validate_ready_for_render
 from .schemas import IntroPreviewRequest, RenderRequest
 from .tts_adapter import TtsConfig
 
@@ -15,6 +16,7 @@ router = APIRouter()
 @router.post("/api/render")
 def render(req: RenderRequest) -> dict[str, Any]:
     try:
+        validate_ready_for_render(req.story)
         return render_story(
             story=req.story,
             voice=req.voice,
@@ -53,12 +55,17 @@ def render_intro_preview(req: IntroPreviewRequest) -> dict[str, Any]:
 
 @router.post("/api/render/jobs")
 def render_job_create(req: RenderRequest) -> dict[str, Any]:
-    return create_render_job(req.model_dump())
+    try:
+        return create_render_job(req.model_dump())
+    except RenderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/api/render/jobs/{job_id}")
-def render_job_get(job_id: str) -> dict[str, Any]:
-    job = get_render_job(job_id)
+def render_job_get(job_id: str, project_id: str = "") -> dict[str, Any]:
+    job = get_render_job(job_id, project_id)
     if not job:
         raise HTTPException(status_code=404, detail="Render job not found")
     return job

@@ -2,13 +2,15 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from .image_adapter import ImageConfig, ImageError, apply_cover_from_source, generate_cover_image, generate_one_story_image, generate_story_images, test_image_connection
+from .image_jobs import cancel_image_job, create_image_job, get_image_job, list_project_jobs
+from .image_adapter import ImageConfig, ImageError, generate_one_story_image, generate_story_images, test_image_connection
 from .llm_adapter import (
     LLMConfig,
     LLMError,
     generate_story,
     generate_story_from_copy,
     generate_text,
+    generate_theme_ideas,
     generate_topic_plan,
     improve_image_prompt,
     revise_topic_plan,
@@ -16,15 +18,15 @@ from .llm_adapter import (
 )
 from .schemas import (
     CopyToStoryRequest,
-    CoverApplyRequest,
-    CoverGenerateRequest,
     GenerateRequest,
     ImageConnectionRequest,
     ImageGenerateRequest,
+    ImageJobCreateRequest,
     ImageRegenerateRequest,
     ImproveImagePromptRequest,
     TextConnectionRequest,
     ThemePlanRequest,
+    ThemeIdeasRequest,
     ThemeReviseRequest,
 )
 
@@ -49,6 +51,20 @@ def text_generate_copy(req: GenerateRequest) -> dict[str, str]:
 def text_generate_theme(req: ThemePlanRequest) -> dict[str, str]:
     try:
         return generate_topic_plan(req.brief, LLMConfig.from_payload(req.model_dump()), req.system_prompt)
+    except LLMError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/text/generate-theme-ideas")
+def text_generate_theme_ideas(req: ThemeIdeasRequest) -> dict[str, Any]:
+    try:
+        return generate_theme_ideas(
+            req.brief,
+            LLMConfig.from_payload(req.model_dump()),
+            req.system_prompt,
+            count=req.count,
+            instruction=req.instruction,
+        )
     except LLMError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -123,30 +139,66 @@ def image_generate_story(req: ImageGenerateRequest) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@router.post("/api/image/jobs")
+def image_job_create(req: ImageJobCreateRequest) -> dict[str, Any]:
+    try:
+        job = create_image_job(
+            req.story,
+            ImageConfig.from_payload(req.model_dump()),
+            fixed_prompt=req.fixed_prompt,
+            mode=req.mode,
+            shot_indexes=req.shot_indexes,
+            concurrency=req.concurrency,
+            project_id=req.project_id,
+            reference_collection_id=req.reference_collection_id,
+            auto_reference_enabled=req.auto_reference_enabled,
+            reference_llm_cfg=LLMConfig(
+                provider=req.reference_provider,
+                base_url=req.reference_base_url,
+                api_key=req.reference_api_key,
+                model=req.reference_model,
+                temperature=req.reference_temperature,
+            ),
+        )
+        return {"job": job}
+    except ImageError as exc:
+        raise image_error_response(exc) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/api/image/jobs")
+def image_jobs_list(project_id: str, active_only: bool = False) -> dict[str, Any]:
+    try:
+        return {"jobs": list_project_jobs(project_id, active_only=active_only)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/api/image/jobs/{project_id}/{job_id}")
+def image_job_get(project_id: str, job_id: str) -> dict[str, Any]:
+    try:
+        return {"job": get_image_job(project_id, job_id)}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Image job not found: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/api/image/jobs/{project_id}/{job_id}/cancel")
+def image_job_cancel(project_id: str, job_id: str) -> dict[str, Any]:
+    try:
+        return {"job": cancel_image_job(project_id, job_id)}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Image job not found: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/api/image/regenerate-shot")
 def image_regenerate_shot(req: ImageRegenerateRequest) -> dict[str, Any]:
     try:
         return generate_one_story_image(req.story, req.shot_index, ImageConfig.from_payload(req.model_dump()), req.fixed_prompt)
-    except ImageError as exc:
-        raise image_error_response(exc) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.post("/api/image/generate-cover")
-def image_generate_cover(req: CoverGenerateRequest) -> dict[str, Any]:
-    try:
-        return generate_cover_image(req.story, req.cover, req.topic, ImageConfig.from_payload(req.model_dump()), req.fixed_prompt)
-    except ImageError as exc:
-        raise image_error_response(exc) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@router.post("/api/image/apply-cover")
-def image_apply_cover(req: CoverApplyRequest) -> dict[str, Any]:
-    try:
-        return apply_cover_from_source(req.story, req.cover, req.topic, req.size)
     except ImageError as exc:
         raise image_error_response(exc) from exc
     except Exception as exc:

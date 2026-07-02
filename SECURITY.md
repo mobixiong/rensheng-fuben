@@ -2,7 +2,7 @@
 
 ## Sensitive data
 
-Do not commit real API keys, `.env` files, generated workspace files, or rendered media outputs.
+The public repository should only contain source code, prompt templates, and intentional examples. Real API keys, `.env` files, generated workspace files, and rendered media outputs are treated as local/private data.
 
 Sensitive local values include:
 

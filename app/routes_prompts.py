@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 
 from .image_adapter import load_image_prompt
-from .llm_adapter import load_copy_to_story_prompt, load_improve_image_prompt, load_theme_prompt
+from .llm_adapter import load_copy_to_story_prompt, load_improve_image_prompt, load_theme_ideas_prompt, load_theme_prompt
 from .paths import ROOT
 
 
@@ -39,3 +39,8 @@ def copy_to_story_prompt() -> dict[str, str]:
 @router.get("/api/prompt/theme")
 def theme_prompt() -> dict[str, str]:
     return {"prompt": load_theme_prompt()}
+
+
+@router.get("/api/prompt/theme-ideas")
+def theme_ideas_prompt() -> dict[str, str]:
+    return {"prompt": load_theme_ideas_prompt()}

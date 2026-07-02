@@ -7,6 +7,7 @@ const INTRO_TEMPLATE_LABELS = {
   life_copy_flash_horizontal: "横向羽化快闪模板",
   life_copy_flash_vertical: "纵向羽化快闪模板",
   life_copy_staggered_mask: "阶梯遮罩接力模板",
+  life_copy_mosaic_collage: "分块拼贴闪切模板",
   none: "无模板",
 };
 

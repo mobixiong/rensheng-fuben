@@ -1,18 +1,13 @@
-import { IMAGE_CONCURRENCY_LIMIT, IMAGE_RETRY_LIMIT, IMAGE_JOB_STATUS, IMAGE_STATUS } from "./constants.js";
-import {
-  clearImageError,
-  clearImageJob,
-  currentImageJobStatus,
-  setImageFinalStatus,
-  setImageJob,
-} from "./image-state.js";
+import { IMAGE_CONCURRENCY_LIMIT, IMAGE_JOB_STATUS } from "./constants.js";
 import {
   createImageProjectId,
   hasShotImage,
-  mergeShotImageResult,
   normalizeShotIndexes,
-  runWithConcurrency,
 } from "./workflow-utils.js";
+
+const ACTIVE_JOB_ITEM_STATUSES = new Set(["queued", "running", "retrying"]);
+const TERMINAL_JOB_STATUSES = new Set(["done", "failed", "cancelled"]);
+const JOB_POLL_INTERVAL_MS = 1000;
 
 export function createImageWorkflow({ els, ui, api, settings, storyView, projectStore, state, withCurrentImageSize }) {
   function imageJobs() {
@@ -20,140 +15,121 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     return state.activeImageJobs;
   }
 
-  function setActiveImageJob(index, status) {
-    const shotIndex = Number(index);
-    if (!Number.isInteger(shotIndex) || shotIndex < 0) return;
-    imageJobs().set(shotIndex, { status, startedAt: Date.now() });
-  }
-
-  function clearActiveImageJob(index) {
-    imageJobs().delete(Number(index));
-  }
-
-  function clearActiveImageJobs(indexes = null) {
-    if (!indexes) {
-      imageJobs().clear();
-      return;
-    }
-    for (const index of indexes) clearActiveImageJob(index);
+  function imageJobPollers() {
+    if (!(state.imageJobPollers instanceof Map)) state.imageJobPollers = new Map();
+    return state.imageJobPollers;
   }
 
   function syncImageGenerationActive() {
     state.imageGenerationActive = imageJobs().size > 0;
   }
 
-  function activeImageIndexes(extraIndexes = []) {
-    const indexes = Array.from(imageJobs().keys());
-    for (const index of extraIndexes) {
-      const shotIndex = Number(index);
-      if (Number.isInteger(shotIndex) && shotIndex >= 0) indexes.push(shotIndex);
+  function modeUiStatus(job, item) {
+    if (item?.status === "retrying") return IMAGE_JOB_STATUS.retrying;
+    const mode = String(job?.mode || "");
+    if (mode.includes("redraw")) return IMAGE_JOB_STATUS.redrawing;
+    return IMAGE_JOB_STATUS.generating;
+  }
+
+  function applyJobToActiveMap(job) {
+    if (!job?.job_id) return;
+    for (const [index, value] of Array.from(imageJobs().entries())) {
+      if (value?.jobId === job.job_id) imageJobs().delete(index);
     }
-    return new Set(indexes);
+    for (const item of job.items || []) {
+      if (!ACTIVE_JOB_ITEM_STATUSES.has(item.status)) continue;
+      imageJobs().set(Number(item.shot_index), {
+        jobId: job.job_id,
+        projectId: job.project_id,
+        status: modeUiStatus(job, item),
+        attempt: item.attempt || 1,
+        startedAt: job.created_at || Date.now(),
+      });
+    }
+    syncImageGenerationActive();
+    storyView.renderShotGrid();
   }
 
-  function clearImageRuntimeFields(shot) {
-    clearImageJob(shot);
-    clearImageError(shot);
+  function clearJobFromActiveMap(job) {
+    if (!job?.job_id) return;
+    for (const [index, value] of Array.from(imageJobs().entries())) {
+      if (value?.jobId === job.job_id) imageJobs().delete(index);
+    }
+    syncImageGenerationActive();
+    storyView.renderShotGrid();
   }
 
-  function normalizeIdleImageStatuses(story, activeIndexes = []) {
-    const activeSet = activeIndexes instanceof Set ? activeIndexes : new Set(activeIndexes.map(Number));
-    if (!Array.isArray(story?.shots)) return story;
-    story.shots = story.shots.map((shot, index) => {
-      if (!shot || activeSet.has(index)) return shot;
-      if (!currentImageJobStatus(shot)) return shot;
-      const nextShot = {
-        ...shot,
-      };
-      setImageFinalStatus(nextShot, hasShotImage(nextShot) ? IMAGE_STATUS.done : IMAGE_STATUS.pending);
-      clearImageRuntimeFields(nextShot);
-      return nextShot;
-    });
-    return story;
+  function jobSummary(job) {
+    if (!job) return {};
+    return {
+      "任务": job.job_id,
+      "状态": job.status,
+      "总数": job.total || 0,
+      "完成": job.done || 0,
+      "失败": job.failed || 0,
+      "取消": job.cancelled || 0,
+    };
   }
 
-  function isPromptPolicyError(err) {
-    const text = `${err?.message || ""} ${err?.code || ""} ${err?.category || ""}`.toLowerCase();
-    return err?.category === "prompt_policy"
-      || text.includes("content_policy_violation")
-      || text.includes("policy_violation")
-      || text.includes("content policy")
-      || text.includes("moderation")
-      || text.includes("提示词被内容安全策略拦截")
-      || text.includes("不合规")
-      || text.includes("防护限制")
-      || text.includes("敏感");
+  async function refreshProjectStory() {
+    const data = await api.fetchJson("/api/project/current");
+    if (data?.state?.project_id) state.currentProjectId = data.state.project_id;
+    if (data?.state?.story) {
+      storyView.write(data.state.story, { scheduleSave: false });
+    }
+    return data;
   }
 
-  function isNonRetryableImageError(err) {
-    const text = `${err?.message || ""} ${err?.code || ""} ${err?.category || ""}`.toLowerCase();
-    return err?.status === 429
-      || err?.category === "quota"
-      || text.includes("quota")
-      || text.includes("rate limit")
-      || text.includes("too many requests")
-      || text.includes("no available image quota")
-      || text.includes("额度不足")
-      || text.includes("限流");
-  }
+  async function pollImageJob(job) {
+    if (!job?.job_id || !job?.project_id) return;
+    const pollers = imageJobPollers();
+    if (pollers.has(job.job_id)) return;
 
-  function imageErrorMessage(err) {
-    const message = String(err?.message || err || "图片生成失败");
-    return err?.suggestion ? `${message}\n${err.suggestion}` : message;
-  }
-
-  async function markShotFailed(story, index, err) {
-    if (!story.shots?.[index]) return;
-    clearActiveImageJob(index);
-    clearImageJob(story.shots[index]);
-    setImageFinalStatus(story.shots[index], isPromptPolicyError(err) ? IMAGE_STATUS.policyError : IMAGE_STATUS.error);
-    story.shots[index]._image_error = imageErrorMessage(err);
-    story.shots[index]._image_error_code = err?.code || "";
-    story.shots[index]._image_error_category = err?.category || "";
-    storyView.write(story);
-    await projectStore.queueSave({ applyState: false, refreshProjects: false });
-  }
-
-  async function regenerateShotWithRetry(story, index, options = {}) {
-    const initialStatus = options.initialStatus || IMAGE_JOB_STATUS.generating;
-    let lastError = null;
-    for (let attempt = 0; attempt <= IMAGE_RETRY_LIMIT; attempt += 1) {
-      if (story.shots?.[index]) {
-        const jobStatus = attempt === 0 ? initialStatus : IMAGE_JOB_STATUS.retrying;
-        setActiveImageJob(index, jobStatus);
-        setImageJob(story.shots[index], jobStatus, { attempt: attempt + 1 });
-        setImageFinalStatus(story.shots[index], hasShotImage(story.shots[index]) ? IMAGE_STATUS.done : IMAGE_STATUS.pending);
-        clearImageError(story.shots[index]);
-        storyView.write(story);
-        await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
-      }
+    const tick = async () => {
       try {
-        return await api.postJson("/api/image/regenerate-shot", settings.imagePayload(story, { shot_index: index }));
+        const data = await api.fetchJson(`/api/image/jobs/${encodeURIComponent(job.project_id)}/${encodeURIComponent(job.job_id)}`);
+        const latest = data.job;
+        applyJobToActiveMap(latest);
+        await refreshProjectStory().catch(() => null);
+        els.result.textContent = JSON.stringify(jobSummary(latest), null, 2);
+        if (TERMINAL_JOB_STATUSES.has(latest.status)) {
+          clearJobFromActiveMap(latest);
+          pollers.delete(job.job_id);
+          await projectStore.loadList().catch(() => null);
+          ui.setStatus(latest.status === "failed" ? "部分失败" : "就绪", latest.status === "failed" ? "error" : "");
+          return;
+        }
+        const timer = window.setTimeout(tick, JOB_POLL_INTERVAL_MS);
+        pollers.set(job.job_id, timer);
       } catch (err) {
-        lastError = err;
-        if (isPromptPolicyError(err) || isNonRetryableImageError(err)) {
-          await markShotFailed(story, index, err);
-          break;
-        }
-        if (attempt < IMAGE_RETRY_LIMIT && story.shots?.[index]) {
-          setActiveImageJob(index, IMAGE_JOB_STATUS.retrying);
-          setImageJob(story.shots[index], IMAGE_JOB_STATUS.retrying, { attempt: attempt + 2 });
-          story.shots[index]._image_error = imageErrorMessage(err);
-          storyView.write(story);
-          await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
-        }
+        clearJobFromActiveMap(job);
+        await refreshProjectStory().catch(() => null);
+        pollers.delete(job.job_id);
+        ui.setStatus("任务轮询失败，已刷新图片状态", "error");
+        els.result.textContent = String(err.message || err);
       }
-    }
-    throw lastError;
+    };
+
+    pollers.set(job.job_id, window.setTimeout(tick, 0));
   }
 
-  async function generateImagesParallel() {
+  function activeShotIndexes() {
+    return new Set(Array.from(imageJobs().keys()).map(Number));
+  }
+
+  function assertNoActiveShots(indexes) {
+    const active = activeShotIndexes();
+    const blocked = indexes.filter((index) => active.has(index));
+    if (blocked.length) {
+      throw new Error(`镜头 ${blocked.map((index) => index + 1).join("、")} 正在生成或重抽中`);
+    }
+  }
+
+  async function createBackendImageJob({ mode, shotIndexes = null, statusText = "创建图片任务" }) {
     settings.persist();
     ui.setBusy(true);
-    ui.setStatus("并行生图", "busy");
-    state.imageGenerationActive = true;
+    ui.setStatus(statusText, "busy");
     clearTimeout(state.saveTimer);
-    let pendingIndexes = [];
     try {
       await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
       let story = withCurrentImageSize(storyView.read());
@@ -161,232 +137,84 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
       if (!Array.isArray(shots) || shots.length === 0) {
         throw new Error("分镜列表为空");
       }
-      pendingIndexes = shots
-        .map((shot, index) => hasShotImage(shot) ? -1 : index)
-        .filter((index) => index >= 0);
-      pendingIndexes.forEach((index) => setActiveImageJob(index, IMAGE_JOB_STATUS.generating));
+
+      const projectId = state.currentProjectId || projectStore.mediaProjectId().replace(/^projects\//, "") || createImageProjectId();
       story = {
         ...story,
-        project_id: projectStore.mediaProjectId() || story.project_id || createImageProjectId(),
-        shots: shots.map((shot) => {
-          const nextShot = { ...shot };
-          setImageFinalStatus(nextShot, hasShotImage(nextShot) ? IMAGE_STATUS.done : IMAGE_STATUS.pending);
-          if (!hasShotImage(nextShot)) {
-            setImageJob(nextShot, IMAGE_JOB_STATUS.generating);
-            clearImageError(nextShot);
-          }
-          return nextShot;
-        }),
+        project_id: projectId,
       };
-      normalizeIdleImageStatuses(story, activeImageIndexes(pendingIndexes));
-      storyView.write(story);
 
-      if (pendingIndexes.length === 0) {
-        els.result.textContent = JSON.stringify({
-          "图片生成": "无需生成",
-          "已有图片": shots.length,
-          "项目编号": story.project_id,
-        }, null, 2);
-        await projectStore.queueSave({ applyState: false, refreshProjects: false });
-        ui.setStatus("就绪");
-        return;
+      const normalizedIndexes = shotIndexes
+        ? normalizeShotIndexes(shotIndexes, shots.length)
+        : shots.map((shot, index) => hasShotImage(shot) ? -1 : index).filter((index) => index >= 0);
+      if (!normalizedIndexes.length) {
+        throw new Error(mode.includes("redraw") ? "请先选择要重抽的图片" : "没有需要生成的图片");
       }
+      assertNoActiveShots(normalizedIndexes);
 
-      let completed = 0;
-      const results = await runWithConcurrency(pendingIndexes, IMAGE_CONCURRENCY_LIMIT, async (index) => {
-        try {
-          const data = await regenerateShotWithRetry(story, index);
-          story = mergeShotImageResult(story, data, index);
-          clearActiveImageJob(index);
-          completed += 1;
-          storyView.write(story);
-          els.result.textContent = JSON.stringify({
-            "图片生成": "并行进行中",
-            "已完成": completed,
-            "待生成数": pendingIndexes.length,
-            "总镜头数": shots.length,
-            "最近完成镜头": index + 1,
-            "项目编号": story.project_id,
-          }, null, 2);
-          ui.setStatus(`生图 ${completed}/${pendingIndexes.length}`, "busy");
-          await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
-          return data;
-        } catch (err) {
-          await markShotFailed(story, index, err);
-          throw err;
-        }
+      const payload = settings.imagePayload(story, {
+        project_id: projectId,
+        mode,
+        shot_indexes: normalizedIndexes,
+        concurrency: IMAGE_CONCURRENCY_LIMIT,
+        ...(state.referenceAssets?.imageJobReferencePayload?.() || {}),
       });
-      const failed = results.filter((item) => item.status === "rejected");
-      if (failed.length) {
-        throw new Error(`并行生图完成 ${completed}/${pendingIndexes.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
-      }
-
-      els.result.textContent = JSON.stringify({
-        "图片生成": "完成",
-        "项目编号": story.project_id,
-        "本次生成": pendingIndexes.length,
-        "镜头数": story.shots?.length || 0,
-      }, null, 2);
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
-      ui.setStatus("就绪");
+      const data = await api.postJson("/api/image/jobs", payload);
+      const job = data.job;
+      applyJobToActiveMap(job);
+      els.result.textContent = JSON.stringify(jobSummary(job), null, 2);
+      ui.setStatus("图片任务已提交", "busy");
+      await pollImageJob(job);
+      return job;
     } catch (err) {
       ui.setStatus("出错", "error");
       els.result.textContent = String(err.message || err);
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
+      throw err;
     } finally {
-      await state.projectSaveQueue.catch(() => null);
-      clearActiveImageJobs(pendingIndexes);
-      syncImageGenerationActive();
-      storyView.renderShotGrid();
-      await projectStore.loadList().catch(() => null);
       ui.setBusy(false);
     }
+  }
+
+  async function generateImagesParallel() {
+    await createBackendImageJob({
+      mode: "generate_missing",
+      shotIndexes: null,
+      statusText: "提交批量生图",
+    }).catch(() => null);
   }
 
   async function redrawShot(index) {
     const shotIndex = Number(index);
-    if (imageJobs().has(shotIndex)) return;
-    settings.persist();
-    ui.setStatus("重抽中", "busy");
-    state.imageGenerationActive = true;
-    clearTimeout(state.saveTimer);
-    try {
-      await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
-      let story = withCurrentImageSize(storyView.read());
-      if (!story.project_id) {
-        story = { ...story, project_id: projectStore.mediaProjectId() || createImageProjectId() };
-        storyView.write(story);
-      }
-      normalizeIdleImageStatuses(story, activeImageIndexes([shotIndex]));
-      if (story.shots?.[index]) {
-        const now = Date.now();
-        setActiveImageJob(index, IMAGE_JOB_STATUS.redrawing);
-        setImageJob(story.shots[index], IMAGE_JOB_STATUS.redrawing, { attempt: 1, startedAt: now });
-        setImageFinalStatus(story.shots[index], hasShotImage(story.shots[index]) ? IMAGE_STATUS.done : IMAGE_STATUS.pending);
-        clearImageError(story.shots[index]);
-        storyView.write(story);
-        await projectStore.queueSave({ applyState: false, refreshProjects: false });
-      }
-      const data = await regenerateShotWithRetry(story, index, { initialStatus: IMAGE_JOB_STATUS.redrawing });
-      story = mergeShotImageResult(story, data, index);
-      clearActiveImageJob(index);
-      storyView.write(story);
-      els.result.textContent = JSON.stringify({
-        "重抽": "完成",
-        "镜头": index + 1,
-        "项目编号": data.project_id,
-      }, null, 2);
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
-      ui.setStatus("就绪");
-    } catch (err) {
-      let story = null;
-      try {
-        story = storyView.read();
-      } catch {
-        story = null;
-      }
-      if (story?.shots?.[index]) {
-        await markShotFailed(story, index, err);
-      }
-      ui.setStatus("出错", "error");
-      els.result.textContent = String(err.message || err);
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
-    } finally {
-      await state.projectSaveQueue.catch(() => null);
-      clearActiveImageJob(shotIndex);
-      syncImageGenerationActive();
-      storyView.renderShotGrid();
-      await projectStore.loadList().catch(() => null);
-    }
+    if (!Number.isInteger(shotIndex) || shotIndex < 0) return;
+    await createBackendImageJob({
+      mode: "redraw",
+      shotIndexes: [shotIndex],
+      statusText: "提交重抽任务",
+    }).catch(() => null);
   }
 
   async function redrawSelectedShots(indexes) {
-    settings.persist();
-    ui.setBusy(true);
-    ui.setStatus("批量重抽", "busy");
-    state.imageGenerationActive = true;
-    clearTimeout(state.saveTimer);
-    let availableRedrawIndexes = [];
-    try {
-      await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
-      let story = withCurrentImageSize(storyView.read());
-      const shots = story.shots || [];
-      if (!Array.isArray(shots) || shots.length === 0) {
-        throw new Error("分镜列表为空");
-      }
-      const redrawIndexes = normalizeShotIndexes(indexes, shots.length);
-      availableRedrawIndexes = redrawIndexes.filter((index) => !imageJobs().has(index));
-      if (redrawIndexes.length === 0) {
-        throw new Error("请先点击选择要重抽的图片");
-      }
-      if (availableRedrawIndexes.length === 0) {
-        throw new Error("选中的图片正在生成或重抽中");
-      }
-      const redrawSet = new Set(availableRedrawIndexes);
-      availableRedrawIndexes.forEach((index) => setActiveImageJob(index, IMAGE_JOB_STATUS.redrawing));
-      normalizeIdleImageStatuses(story, activeImageIndexes(availableRedrawIndexes));
-      const normalizedShots = story.shots || shots;
-      story = {
-        ...story,
-        project_id: story.project_id || projectStore.mediaProjectId() || createImageProjectId(),
-        shots: normalizedShots.map((shot, index) => {
-          const nextShot = { ...shot };
-          if (redrawSet.has(index)) {
-            setImageJob(nextShot, IMAGE_JOB_STATUS.redrawing, { attempt: 1 });
-            setImageFinalStatus(nextShot, hasShotImage(nextShot) ? IMAGE_STATUS.done : IMAGE_STATUS.pending);
-            clearImageError(nextShot);
-          }
-          return nextShot;
-        }),
-      };
-      storyView.write(story);
+    await createBackendImageJob({
+      mode: "batch_redraw",
+      shotIndexes: indexes,
+      statusText: "提交批量重抽",
+    }).catch(() => null);
+  }
 
-      let completed = 0;
-      const results = await runWithConcurrency(availableRedrawIndexes, IMAGE_CONCURRENCY_LIMIT, async (index) => {
-        try {
-          const data = await regenerateShotWithRetry(story, index, { initialStatus: IMAGE_JOB_STATUS.redrawing });
-          story = mergeShotImageResult(story, data, index);
-          clearActiveImageJob(index);
-          completed += 1;
-          storyView.write(story);
-          els.result.textContent = JSON.stringify({
-            "批量重抽": "进行中",
-            "已完成": completed,
-            "总数": availableRedrawIndexes.length,
-            "最近完成镜头": index + 1,
-            "项目编号": story.project_id,
-          }, null, 2);
-          ui.setStatus(`重抽 ${completed}/${availableRedrawIndexes.length}`, "busy");
-          await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
-          return data;
-        } catch (err) {
-          await markShotFailed(story, index, err);
-          throw err;
-        }
-      });
-      const failed = results.filter((item) => item.status === "rejected");
-      if (failed.length) {
-        throw new Error(`批量重抽完成 ${completed}/${availableRedrawIndexes.length}，失败 ${failed.length} 张：${failed[0].reason?.message || failed[0].reason}`);
-      }
-
-      els.result.textContent = JSON.stringify({
-        "批量重抽": "完成",
-        "本次重抽": availableRedrawIndexes.length,
-        "项目编号": story.project_id,
-      }, null, 2);
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
-      ui.setStatus("就绪");
-    } catch (err) {
-      ui.setStatus("出错", "error");
-      els.result.textContent = String(err.message || err);
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
-    } finally {
-      await state.projectSaveQueue.catch(() => null);
-      clearActiveImageJobs(availableRedrawIndexes);
+  async function restoreActiveImageJobs() {
+    const projectId = state.currentProjectId;
+    if (!projectId) return;
+    const data = await api.fetchJson(`/api/image/jobs?project_id=${encodeURIComponent(projectId)}&active_only=true`).catch(() => null);
+    const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+    if (!jobs.length) {
+      imageJobs().clear();
       syncImageGenerationActive();
       storyView.renderShotGrid();
-      await projectStore.loadList().catch(() => null);
-      ui.setBusy(false);
+      return;
+    }
+    for (const job of jobs) {
+      applyJobToActiveMap(job);
+      pollImageJob(job);
     }
   }
 
@@ -418,52 +246,6 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     }
   }
 
-  async function generateCoverImage() {
-    settings.persist();
-    ui.setBusy(true);
-    ui.setStatus("生成封面", "busy");
-    clearTimeout(state.saveTimer);
-    try {
-      await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
-      let story = withCurrentImageSize(storyView.read());
-      if (!story.project_id) {
-        story = { ...story, project_id: projectStore.mediaProjectId() || createImageProjectId() };
-      }
-      story.cover = {
-        ...(story.cover || {}),
-        title: els.topic.value.trim() || story.title || "",
-        image_prompt: els.coverPrompt?.value.trim() || story.cover?.image_prompt || "",
-        image_size: els.imageSize?.value || story.image_size || "",
-        _cover_status: "generating",
-      };
-      delete story.cover._cover_error;
-      storyView.write(story);
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
-
-      const data = await api.postJson("/api/image/generate-cover", settings.imagePayload(story, {
-        topic: els.topic.value.trim() || story.title || "",
-        cover: story.cover,
-      }));
-      storyView.write(data);
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
-      els.result.textContent = JSON.stringify({
-        "封面": "已生成",
-        "项目编号": data.project_id,
-        "封面地址": data.cover?.image_url || "",
-      }, null, 2);
-      ui.setStatus("就绪");
-    } catch (err) {
-      storyView.setCoverStatus("error", String(err.message || err));
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
-      ui.setStatus("出错", "error");
-      els.result.textContent = String(err.message || err);
-    } finally {
-      await state.projectSaveQueue.catch(() => null);
-      storyView.renderCoverPanel();
-      await projectStore.loadList().catch(() => null);
-      ui.setBusy(false);
-    }
-  }
 
   async function setShotAsCover(index) {
     const shotIndex = Number(index);
@@ -471,42 +253,24 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     ui.setStatus("设置封面", "busy");
     clearTimeout(state.saveTimer);
     try {
-      await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
       storyView.setShotAsCover(shotIndex);
-      let story = withCurrentImageSize(storyView.read());
-      story.cover = {
-        ...(story.cover || {}),
-        title: els.topic.value.trim() || story.title || "",
-        _cover_status: "generating",
-      };
-      storyView.write(story);
-      const data = await api.postJson("/api/image/apply-cover", {
-        story,
-        cover: story.cover,
-        topic: els.topic.value.trim() || story.title || "",
-        size: els.imageSize?.value || story.image_size || "9:16",
-      });
-      storyView.write(data);
       await projectStore.queueSave({ applyState: false, refreshProjects: false });
+      await state.projectSaveQueue.catch(() => null);
+      await projectStore.loadList().catch(() => null);
       ui.setStatus("已设置封面");
     } catch (err) {
-      storyView.setCoverStatus("error", String(err.message || err));
-      await projectStore.queueSave({ applyState: false, refreshProjects: false });
       ui.setStatus("出错", "error");
       els.result.textContent = String(err.message || err);
     } finally {
-      await state.projectSaveQueue.catch(() => null);
       storyView.renderShotGrid();
-      storyView.renderCoverPanel();
     }
   }
-
   return {
     generateImagesParallel,
     redrawShot,
     redrawSelectedShots,
+    restoreActiveImageJobs,
     improveShotImagePrompt,
-    generateCoverImage,
     setShotAsCover,
   };
 }

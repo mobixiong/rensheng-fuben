@@ -25,5 +25,8 @@ workspace/
 
 life-copy-design/
 
+# Local working notes for Codex/project understanding. Keep updated locally, do not publish.
+PROJECT_CONTEXT.local.md
+
 .DS_Store
 Thumbs.db
