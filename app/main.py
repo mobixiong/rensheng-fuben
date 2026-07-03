@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .paths import ROOT, STATIC, WORKSPACE
+from .paths import ENV_PATH, STATIC, WORKSPACE
 from .routes_assets import router as assets_router
 from .routes_auto_pipeline import router as auto_pipeline_router
 from .routes_generation import router as generation_router
@@ -15,7 +15,7 @@ from .routes_render import router as render_router
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(ROOT / ".env")
+    load_dotenv(ENV_PATH)
 except Exception:
     pass
 

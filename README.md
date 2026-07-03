@@ -45,6 +45,16 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 7860
 http://127.0.0.1:7860
 ```
 
+## Windows EXE
+
+发布版下载 `rensheng-fuben-windows-x64.zip` 后解压，双击 `rensheng-fuben.exe` 即可启动，默认访问：
+
+```text
+http://127.0.0.1:7860
+```
+
+如需填写 API Key，可以把 `.env.example` 复制为 `.env`，并放在 `rensheng-fuben.exe` 同级目录。项目数据、上传素材、生成图片和视频会保存在 exe 同级的 `workspace/` 目录，不会写入安装目录外的系统位置。
+
 ## 本地自检
 
 启动服务后可以跑 smoke check，确认接口、项目恢复、前端模块加载、分镜渲染和已有图片 URL 是否正常：

@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 *.pyo
+build/
+dist/
+*.zip
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
