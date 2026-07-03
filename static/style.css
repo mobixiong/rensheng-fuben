@@ -603,6 +603,11 @@ textarea {
   margin-top: 14px;
 }
 
+.theme-style-grid {
+  grid-template-columns: minmax(260px, 420px);
+  margin: 0 0 14px;
+}
+
 .auto-option-list {
   display: grid;
   gap: 10px;
@@ -1663,9 +1668,10 @@ textarea {
 
 .intro-preview-card video {
   width: 100%;
-  aspect-ratio: 9 / 16;
+  aspect-ratio: 16 / 9;
   border-radius: calc(var(--radius-md) - 2px);
-  object-fit: cover;
+  object-fit: contain;
+  background: #000;
 }
 
 .intro-preview-card span {

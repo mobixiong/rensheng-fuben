@@ -129,6 +129,7 @@ export function createRenderWorkflow({ els, ui, api, settings, storyView, projec
         tts_language_boost: voiceConfig.ttsLanguageBoost || "",
         project_id: projectStore.mediaProjectId(),
         cleanup_intermediate: true,
+        force_render: true,
         intro_template: els.introTemplate?.value || "none",
         intro_image_seconds: introImageSecondsValue(els),
         image_size: els.imageSize?.value || "9:16",

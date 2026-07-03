@@ -13,7 +13,7 @@ import {
   PROJECT_SAVE_DELAY_MS,
   STORYBOARD_GRANULARITIES,
   THEME_IDEA_PROMPT_VERSION,
-} from "./constants.js?v=20260703_copy_prompt_v9";
+} from "./constants.js?v=20260703_copy_prompt_v10";
 import { escapeHtml } from "./html.js";
 
 export function createProjectStore({ els, ui, api, storyView, state, settings, setActiveTab }) {
@@ -67,7 +67,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       auto_reference_enabled: Boolean(els.autoReferenceEnabled?.checked),
       result_text: els.result.textContent,
       rendered_video: currentRenderedVideoUrl(),
-      copy_prompt_preset: els.copyPromptPreset?.value || DEFAULT_COPY_PROMPT_PRESET,
+      copy_prompt_preset: els.copyPromptPreset?.value || els.themeCopyPreset?.value || DEFAULT_COPY_PROMPT_PRESET,
       storyboard_granularity: STORYBOARD_GRANULARITIES.includes(els.storyboardGranularity?.value)
         ? els.storyboardGranularity.value
         : DEFAULT_STORYBOARD_GRANULARITY,
@@ -158,9 +158,11 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (els.topicMirror) els.topicMirror.textContent = els.topic.value || "未填写主题";
     if (els.themeIntroMirror) els.themeIntroMirror.textContent = els.themeIntro?.value.trim() || "未填写主题介绍";
     if (els.copyPromptPreset && typeof projectStateData.copy_prompt_preset === "string") {
-      els.copyPromptPreset.value = COPY_PROMPT_PRESETS.includes(projectStateData.copy_prompt_preset)
+      const preset = COPY_PROMPT_PRESETS.includes(projectStateData.copy_prompt_preset)
         ? projectStateData.copy_prompt_preset
         : DEFAULT_COPY_PROMPT_PRESET;
+      els.copyPromptPreset.value = preset;
+      if (els.themeCopyPreset) els.themeCopyPreset.value = preset;
     }
     if (typeof projectStateData.copy_text === "string") els.copyOutput.value = projectStateData.copy_text;
     if (typeof projectStateData.copy_prompt === "string" && projectStateData.copy_prompt_version === COPY_PROMPT_VERSION) {
@@ -350,6 +352,8 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     els.topic.value = "新项目";
     if (els.topicMirror) els.topicMirror.textContent = els.topic.value;
     if (els.themeIntroMirror) els.themeIntroMirror.textContent = "未填写主题介绍";
+    if (els.themeCopyPreset) els.themeCopyPreset.value = DEFAULT_COPY_PROMPT_PRESET;
+    if (els.copyPromptPreset) els.copyPromptPreset.value = DEFAULT_COPY_PROMPT_PRESET;
     els.copyOutput.value = "";
     els.result.textContent = "{}";
     if (els.projectReferenceCollection) els.projectReferenceCollection.value = "";

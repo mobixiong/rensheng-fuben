@@ -1,10 +1,10 @@
 import * as api from "./js/api.js";
 import { $ , createUi } from "./js/ui.js";
-import { createSettings } from "./js/settings.js?v=20260703_copy_prompt_v9";
+import { createSettings } from "./js/settings.js?v=20260703_copy_prompt_v10";
 import { createStoryView } from "./js/story-view.js";
-import { createProjectStore } from "./js/project-store.js?v=20260703_copy_prompt_v9";
+import { createProjectStore } from "./js/project-store.js?v=20260703_copy_prompt_v10";
 import { createReferenceAssets } from "./js/reference-assets.js";
-import { createWorkflow } from "./js/workflow.js?v=20260703_auto_loop";
+import { createWorkflow } from "./js/workflow.js?v=20260703_intro_preview_ratio";
 import { createThemeWorkflow } from "./js/workflow-theme.js?v=20260702_theme_direction_fix";
 
 const ui = createUi();
@@ -386,6 +386,9 @@ function bindEvents() {
   });
   $("copyPromptPreset")?.addEventListener("change", () => {
     settings.applyCopyPromptPreset(storyView.updatePromptMeta, projectStore.scheduleSave);
+  });
+  $("themeCopyPreset")?.addEventListener("change", () => {
+    settings.applyCopyPromptPreset(storyView.updatePromptMeta, projectStore.scheduleSave, els.themeCopyPreset.value);
   });
   $("resetCopyToStoryPrompt")?.addEventListener("click", () => {
     settings.resetCopyToStoryPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);

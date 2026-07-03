@@ -2,7 +2,7 @@ import { createAutoPipelineWorkflow } from "./workflow-auto-pipeline.js?v=202607
 import { createConnectionWorkflow } from "./workflow-connection.js";
 import { createCopyWorkflow } from "./workflow-copy.js";
 import { createImageWorkflow } from "./workflow-image.js?v=20260702_image_poll_fix";
-import { createMediaWorkflow } from "./workflow-media.js";
+import { createMediaWorkflow } from "./workflow-media.js?v=20260703_intro_preview_ratio";
 import { createRenderWorkflow } from "./workflow-render.js";
 import { createThemeWorkflow } from "./workflow-theme.js";
 import { DEFAULT_IMAGE_SIZE } from "./constants.js";

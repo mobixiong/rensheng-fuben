@@ -141,6 +141,11 @@ export function createMediaWorkflow({ els, ui, api, settings, projectStore, stor
 
       const video = document.createElement("video");
       const videoUrl = String(item.video || "");
+      const width = Number.parseInt(item.width || data.video_width || 0, 10);
+      const height = Number.parseInt(item.height || data.video_height || 0, 10);
+      if (width > 0 && height > 0) {
+        video.style.aspectRatio = `${width} / ${height}`;
+      }
       video.src = videoUrl ? `${videoUrl}${videoUrl.includes("?") ? "&" : "?"}v=${cacheKey}` : "";
       video.controls = true;
       video.muted = true;
@@ -171,13 +176,14 @@ export function createMediaWorkflow({ els, ui, api, settings, projectStore, stor
     ui.setStatus("生成开头预览", "busy");
     try {
       await projectStore.ensureSaved({ applyState: false });
+      const imageSize = els.imageSize?.value || "9:16";
       const data = await api.postJson("/api/render/intro-previews", {
-        story: storyView.read(),
+        story: storyView.withImageSize(storyView.read(), imageSize),
         project_id: projectStore.mediaProjectId(),
         templates: INTRO_TEMPLATE_PREVIEW_ITEMS.map((item) => item.id),
         duration: 3,
         image_seconds: introImageSecondsValue(els),
-        image_size: els.imageSize?.value || "9:16",
+        image_size: imageSize,
       });
       renderIntroPreviewGrid(data);
       ui.setStatus("开头模板预览已生成");

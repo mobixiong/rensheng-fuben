@@ -1,10 +1,11 @@
+import unicodedata
 from pathlib import Path
 from typing import Any
 
 from .render_constants import H, W
 
 SUBTITLE_FONT_SIZE = 54
-SUBTITLE_RENDER_VERSION = 3
+SUBTITLE_RENDER_VERSION = 4
 SUBTITLE_SPLIT_MARKS = "，。！？；,.!?;"
 SUBTITLE_MIN_CHARS = 10
 SUBTITLE_CLOSING_QUOTES = "”’」』）》】"
@@ -72,6 +73,19 @@ def _normalize_chunk_list(value: Any) -> list[str]:
     return _merge_short_chunks(chunks) if chunks else []
 
 
+def _semantic_text(text: str) -> str:
+    return "".join(ch for ch in str(text or "") if unicodedata.category(ch)[0] in {"L", "N"})
+
+
+def _matching_subtitle_chunks(text: str, value: Any) -> list[str]:
+    chunks = _normalize_chunk_list(value)
+    if not chunks:
+        return []
+    if _semantic_text("".join(chunks)) != _semantic_text(text):
+        return []
+    return chunks
+
+
 def _subtitle_chunks(text: str) -> list[str]:
     clean = " ".join(str(text or "").split())
     if not clean:
@@ -101,7 +115,8 @@ def _subtitle_events(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
         start = float(shot["start"])
         end = float(shot["end"])
         duration = max(0.1, end - start)
-        chunks = _normalize_chunk_list(shot.get("subtitle_chunks")) or _subtitle_chunks(str(shot.get("voiceover", "")))
+        voiceover = str(shot.get("voiceover", ""))
+        chunks = _matching_subtitle_chunks(voiceover, shot.get("subtitle_chunks")) or _subtitle_chunks(voiceover)
         weights = [max(1, len(chunk)) for chunk in chunks]
         total_weight = max(1, sum(weights))
         cursor = start

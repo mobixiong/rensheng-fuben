@@ -24,6 +24,7 @@ def render(req: RenderRequest) -> dict[str, Any]:
             tts_config=TtsConfig.from_payload(req.model_dump()),
             project_id=req.project_id,
             cleanup_intermediate=req.cleanup_intermediate,
+            force_render=req.force_render,
             intro_template=req.intro_template,
             bgm_id=req.bgm_id,
             intro_image_seconds=req.intro_image_seconds,

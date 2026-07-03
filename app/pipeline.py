@@ -516,6 +516,7 @@ def render_intro_previews(
     clean = normalize_story(story)
     image_seconds = normalize_intro_image_seconds(image_seconds)
     canvas_size = render_size(image_size or story.get("image_size"))
+    size_slug = f"{canvas_size[0]}x{canvas_size[1]}"
     project_id = _workspace_project_id(project_id) or time.strftime("%Y%m%d_%H%M%S_preview_") + uuid.uuid4().hex[:8]
     project_ref = _workspace_project_ref(project_id)
     public_project_id = _public_project_id(project_ref)
@@ -536,11 +537,14 @@ def render_intro_previews(
 
     items: list[dict[str, str]] = []
     for template in valid_templates:
-        out_path = preview_dir / f"{template}.mp4"
+        out_path = preview_dir / f"{template}_{size_slug}.mp4"
         render_intro_template(template, image_paths[:FAST_CUT_MAX_IMAGES], out_path, duration, image_seconds, canvas_size)
         items.append({
             "id": template,
-            "video": f"{workspace_url}/previews/intro_templates/{template}.mp4",
+            "video": f"{workspace_url}/previews/intro_templates/{template}_{size_slug}.mp4",
+            "width": str(canvas_size[0]),
+            "height": str(canvas_size[1]),
+            "image_size": image_size or "",
         })
     preview_image_dir = preview_dir / "images"
     if preview_image_dir.exists():
@@ -549,6 +553,9 @@ def render_intro_previews(
         "project_id": public_project_id,
         "duration_sec": duration,
         "image_seconds": image_seconds,
+        "video_width": canvas_size[0],
+        "video_height": canvas_size[1],
+        "image_size": image_size or "",
         "items": items,
     }
 
@@ -560,6 +567,7 @@ def render_story(
     tts_config: TtsConfig | None = None,
     project_id: str | None = None,
     cleanup_intermediate: bool = True,
+    force_render: bool = False,
     progress_callback: Callable[[dict[str, Any]], None] | None = None,
     intro_template: str = "none",
     bgm_id: str | None = None,
@@ -811,7 +819,7 @@ def render_story(
         "intro_template": intro_template,
         "size": canvas_size,
     })
-    reused_final = _stage_done(
+    reused_final = (not force_render) and _stage_done(
         manifest,
         "video",
         "final",

@@ -21,7 +21,7 @@ import {
   SETTINGS_KEY,
   STORYBOARD_GRANULARITIES,
   THEME_IDEA_PROMPT_VERSION,
-} from "./constants.js?v=20260703_copy_prompt_v9";
+} from "./constants.js?v=20260703_copy_prompt_v10";
 
 const SECRET_SETTINGS_KEY = `${SETTINGS_KEY}-session-secrets`;
 const IMAGE_STYLE_PRESET_KEYS = ["short_video", "realistic", "cinematic", "anime"];
@@ -84,7 +84,14 @@ export function createSettings({ els }) {
   let defaultThemeIdeaPrompt = "";
 
   function copyPromptPreset() {
-    return COPY_PROMPT_PRESETS.includes(els.copyPromptPreset?.value) ? els.copyPromptPreset.value : DEFAULT_COPY_PROMPT_PRESET;
+    return syncCopyPromptPreset(els.copyPromptPreset?.value || els.themeCopyPreset?.value || DEFAULT_COPY_PROMPT_PRESET);
+  }
+
+  function syncCopyPromptPreset(value) {
+    const preset = COPY_PROMPT_PRESETS.includes(value) ? value : DEFAULT_COPY_PROMPT_PRESET;
+    if (els.copyPromptPreset && els.copyPromptPreset.value !== preset) els.copyPromptPreset.value = preset;
+    if (els.themeCopyPreset && els.themeCopyPreset.value !== preset) els.themeCopyPreset.value = preset;
+    return preset;
   }
 
   function autoCopyPromptPreset() {
@@ -319,7 +326,7 @@ export function createSettings({ els }) {
       els.voice.value = s.voice || "zh-CN-YunxiNeural";
       els.rate.value = s.rate || "+12%";
       if (els.copyPromptPreset) {
-        els.copyPromptPreset.value = COPY_PROMPT_PRESETS.includes(s.copyPromptPreset) ? s.copyPromptPreset : DEFAULT_COPY_PROMPT_PRESET;
+        syncCopyPromptPreset(s.copyPromptPreset);
       }
       if (els.storyboardGranularity) els.storyboardGranularity.value = storyboardGranularity(s.storyboardGranularity);
       if (els.imageStylePreset) {
@@ -417,7 +424,9 @@ export function createSettings({ els }) {
     scheduleSave();
   }
 
-  function applyCopyPromptPreset(updatePromptMeta, scheduleSave) {
+  function applyCopyPromptPreset(updatePromptMeta, scheduleSave, presetValue = "") {
+    if (presetValue) syncCopyPromptPreset(presetValue);
+    else syncCopyPromptPreset(els.copyPromptPreset?.value || els.themeCopyPreset?.value);
     defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality_reverse || "";
     if (defaultCopyPrompt) els.copyPrompt.value = defaultCopyPrompt;
     persist();

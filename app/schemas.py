@@ -119,6 +119,7 @@ class RenderRequest(BaseModel):
     tts_language_boost: str = "Chinese"
     project_id: str | None = None
     cleanup_intermediate: bool = True
+    force_render: bool = False
     intro_template: str = "none"
     intro_image_seconds: float = 0.3
     image_size: str = "9:16"
