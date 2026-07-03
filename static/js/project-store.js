@@ -5,13 +5,15 @@ import {
   DEFAULT_COPY_PROMPT_PRESET,
   DEFAULT_IMAGE_SIZE,
   DEFAULT_INTRO_TEMPLATE,
+  DEFAULT_STORYBOARD_GRANULARITY,
   IMAGE_SIZES,
   IMPROVE_IMAGE_PROMPT_VERSION,
   INTRO_TEMPLATES,
   PROJECT_PROGRESS_SAVE_INTERVAL_MS,
   PROJECT_SAVE_DELAY_MS,
+  STORYBOARD_GRANULARITIES,
   THEME_IDEA_PROMPT_VERSION,
-} from "./constants.js";
+} from "./constants.js?v=20260703_copy_prompt_v9";
 import { escapeHtml } from "./html.js";
 
 export function createProjectStore({ els, ui, api, storyView, state, settings, setActiveTab }) {
@@ -66,6 +68,9 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       result_text: els.result.textContent,
       rendered_video: currentRenderedVideoUrl(),
       copy_prompt_preset: els.copyPromptPreset?.value || DEFAULT_COPY_PROMPT_PRESET,
+      storyboard_granularity: STORYBOARD_GRANULARITIES.includes(els.storyboardGranularity?.value)
+        ? els.storyboardGranularity.value
+        : DEFAULT_STORYBOARD_GRANULARITY,
       copy_prompt: els.copyPrompt.value,
       copy_prompt_version: COPY_PROMPT_VERSION,
       copy_to_story_prompt: els.copyToStoryPrompt?.value || "",
@@ -167,6 +172,11 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
       && projectStateData.copy_to_story_prompt_version === COPY_TO_STORY_PROMPT_VERSION
     ) {
       els.copyToStoryPrompt.value = projectStateData.copy_to_story_prompt;
+    }
+    if (els.storyboardGranularity) {
+      els.storyboardGranularity.value = STORYBOARD_GRANULARITIES.includes(projectStateData.storyboard_granularity)
+        ? projectStateData.storyboard_granularity
+        : DEFAULT_STORYBOARD_GRANULARITY;
     }
     if (els.imageStylePreset && typeof projectStateData.image_style_preset === "string") {
       const exists = Array.from(els.imageStylePreset.options).some((option) => option.value === projectStateData.image_style_preset);

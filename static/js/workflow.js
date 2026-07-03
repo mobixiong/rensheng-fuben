@@ -1,4 +1,4 @@
-import { createAutoPipelineWorkflow } from "./workflow-auto-pipeline.js";
+import { createAutoPipelineWorkflow } from "./workflow-auto-pipeline.js?v=20260703_auto_loop";
 import { createConnectionWorkflow } from "./workflow-connection.js";
 import { createCopyWorkflow } from "./workflow-copy.js";
 import { createImageWorkflow } from "./workflow-image.js?v=20260702_image_poll_fix";

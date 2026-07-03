@@ -38,7 +38,93 @@ _runner = ThreadPoolExecutor(max_workers=2)
 _lock = threading.RLock()
 _cancelled: set[str] = set()
 _runtime_secrets: dict[str, dict[str, Any]] = {}
+IMAGE_REPAIR_SINGLE_RETRY_SIZE = 1
 IMAGE_REPAIR_BURST_SIZE = 9
+IMAGE_REPAIR_INFINITE_BURST_SIZE = 4
+COPY_PROMPT_PRESETS = (
+    "reality_reverse",
+    "reality_breakout",
+    "reality_stop_loss",
+    "reality_burnout_support",
+    "xianxia",
+    "fantasy_wuxia",
+    "fantasy_zombie",
+    "fantasy_otherworld",
+    "fantasy_cyberpunk",
+    "fantasy_weird_rules",
+)
+COPY_PRESET_THEME_PROFILES: dict[str, dict[str, str]] = {
+    "reality_reverse": {
+        "label": "现实反转压迫型",
+        "domain": "现实职业、家庭关系、县城/城市生活、平台规则、收入成本和人际压力",
+        "direction": "主题要从期待、短暂回报，逐步走向规则压迫、账目窒息和无尽循环。",
+        "examples": "外卖骑手、县城宝妈、北漂程序员、房产中介、网约车司机、工厂夜班工。",
+        "avoid": "不要出现修仙、武侠、丧尸、异世界、赛博朋克、规则怪谈等超现实设定。",
+    },
+    "reality_breakout": {
+        "label": "现实理智破局型",
+        "domain": "现实职场、婚姻家庭、平台经济、生意合作、利益博弈和证据筹码",
+        "direction": "主题要适合写主角隐忍计算、暗中积累筹码、理智清算并完成跃迁。",
+        "examples": "被抢功劳的销售、被亲戚吸血的小老板、被平台压价的主播、被合伙人算计的创业者。",
+        "avoid": "不要写成无脑复仇、突然暴富、天降贵人或超现实世界观。",
+    },
+    "reality_stop_loss": {
+        "label": "现实止损型",
+        "domain": "现实高压赛道、消费升级、债务杠杆、城市体面、健康透支和主动退出",
+        "direction": "主题要适合写主角通过生命账单核算，看清隐性成本后主动降杠杆、断舍离。",
+        "examples": "月薪三万却被车房榨干的白领、硬撑体面的城市中产、过度扩张的小店老板。",
+        "avoid": "不要写成田园牧歌、鸡汤治愈、逆袭爽文或超现实题材。",
+    },
+    "reality_burnout_support": {
+        "label": "现实燃尽托举型",
+        "domain": "现实家庭托举、父母子女、病痛账单、教育开销、房贷压力和长期隐忍",
+        "direction": "主题要适合写主角为了软肋主动燃烧自己，用身体和时间填补家人的账单。",
+        "examples": "给孩子交学费的中年父亲、给父母治病的打工人、撑起一家人的县城母亲。",
+        "avoid": "不要把家人写成纯恶人，不要写成大团圆，不要加入超现实设定。",
+    },
+    "xianxia": {
+        "label": "修仙型",
+        "domain": "宗门、散修、灵石债务、丹药成本、秘境名额、功法内卷、天劫和寿元折损",
+        "direction": "主题要把修仙世界写成一套可计算的生存系统，围绕修炼资源和阶层压迫展开。",
+        "examples": "背负灵石贷的外门弟子、给宗门炼丹还债的散修、被秘境KPI压垮的低阶修士。",
+        "avoid": "不要生成纯现实职业题，不要写成无脑龙傲天爽文或突然觉醒无敌血脉。",
+    },
+    "fantasy_wuxia": {
+        "label": "武侠江湖型",
+        "domain": "镖局、门派、武馆、江湖客栈、师门债、人情债、兵器折旧和江湖规矩",
+        "direction": "主题要适合写江湖外壳下的生存账本，侠义、门规和银钱压力互相撕扯。",
+        "examples": "给镖局还债的趟子手、被师门绑住的年轻刀客、靠卖命接单的落魄侠客。",
+        "avoid": "不要生成现代职场题，不要写成无成本快意恩仇。",
+    },
+    "fantasy_zombie": {
+        "label": "丧尸末日型",
+        "domain": "末日庇护所、感染风险、物资配给、避难名额、巡逻任务、药品和信任崩塌",
+        "direction": "主题要围绕资源稀缺和生存代价展开，主角行动必须基于风险收益计算。",
+        "examples": "为了换抗感染药出城搜物资的人、被庇护所积分制度压榨的巡逻员、末日里的单亲父亲。",
+        "avoid": "不要写血腥细节，不要写成单纯打怪爽文或现实都市题。",
+    },
+    "fantasy_otherworld": {
+        "label": "异世界型",
+        "domain": "冒险者公会、魔法药水、装备折旧、系统任务、复活费用、队伍分成和传送门",
+        "direction": "主题要把异世界冒险写成高危外包工作，用经济账本拆掉奇幻滤镜。",
+        "examples": "签下公会长约的底层冒险者、靠系统续命的穿越者、背负装备贷的新手勇士。",
+        "avoid": "不要生成现实职业题，不要打败魔王拯救世界，不要机械降神。",
+    },
+    "fantasy_cyberpunk": {
+        "label": "赛博朋克型",
+        "domain": "义体贷款、数据公司、算法评分、黑市维修、脑机接口、城市分层和身份权限",
+        "direction": "主题要适合写科技外壳下的债务、监控和身体折旧，保持冷酷现实感。",
+        "examples": "背着义体贷的外包黑客、靠记忆出租还债的底层青年、被评分系统锁死的快递员。",
+        "avoid": "不要生成古风修仙或纯现实职业题，不要写成无脑科幻爽文。",
+    },
+    "fantasy_weird_rules": {
+        "label": "规则怪谈型",
+        "domain": "诡异规则、封闭场域、职位守则、禁忌条款、积分惩罚、信息差和生存选择",
+        "direction": "主题要围绕规则理解、试探成本和生存账本展开，恐惧来自制度化约束而不是血腥描写。",
+        "examples": "午夜便利店守则实习生、永不熄灯公寓管理员、无限商场导购、规则列车乘务员。",
+        "avoid": "不要写血腥猎奇细节，不要生成普通现实职业题，不要把规则写得随机混乱。",
+    },
+}
 
 
 class AutoPipelineError(RuntimeError):
@@ -50,11 +136,67 @@ class AutoPipelineCancelled(AutoPipelineError):
 
 
 def _default_copy_prompt(preset: str) -> str:
-    if preset == "xianxia":
+    if preset == "reality_breakout":
+        path = ROOT / "prompts" / "copy_reality_breakout.md"
+    elif preset == "reality_stop_loss":
+        path = ROOT / "prompts" / "copy_reality_stop_loss.md"
+    elif preset == "reality_burnout_support":
+        path = ROOT / "prompts" / "copy_reality_burnout_support.md"
+    elif preset == "reality_reverse":
+        path = ROOT / "prompt.txt"
+    elif preset == "xianxia":
         path = ROOT / "prompts" / "copy_xianxia.md"
+    elif preset == "fantasy_wuxia":
+        path = ROOT / "prompts" / "copy_fantasy_wuxia.md"
+    elif preset == "fantasy_zombie":
+        path = ROOT / "prompts" / "copy_fantasy_zombie.md"
+    elif preset == "fantasy_otherworld":
+        path = ROOT / "prompts" / "copy_fantasy_otherworld.md"
+    elif preset == "fantasy_cyberpunk":
+        path = ROOT / "prompts" / "copy_fantasy_cyberpunk.md"
+    elif preset == "fantasy_weird_rules":
+        path = ROOT / "prompts" / "copy_fantasy_weird_rules.md"
     else:
         path = ROOT / "prompt.txt"
     return path.read_text(encoding="utf-8")
+
+
+def _resolve_copy_preset(value: Any) -> str:
+    preset = str(value or "").strip()
+    if preset == "random":
+        return random.choice(COPY_PROMPT_PRESETS)
+    if preset == "reality":
+        return "reality_reverse"
+    if preset in COPY_PROMPT_PRESETS:
+        return preset
+    return "reality_reverse"
+
+
+def _copy_preset_theme_profile(preset: Any) -> dict[str, str]:
+    resolved = _resolve_copy_preset(preset)
+    return COPY_PRESET_THEME_PROFILES.get(resolved) or COPY_PRESET_THEME_PROFILES["reality_reverse"]
+
+
+def _copy_preset_theme_instruction(preset: Any) -> str:
+    profile = _copy_preset_theme_profile(preset)
+    return "\n".join([
+        f"本次自动流水线已经选定文案类型：{profile['label']}。",
+        f"选题必须适配这个文案类型，只能从这个范围中抽取：{profile['domain']}。",
+        f"主题和主题介绍的情绪/结构方向：{profile['direction']}",
+        f"可参考的选题形态：{profile['examples']}",
+        f"必须避开：{profile['avoid']}",
+        "如果用户提供了顶层要求，例如“猎奇”“温馨”“斗罗大陆世界观”，只能在上述文案类型范围内吸收这些要求，不要改变文案类型。",
+        "输出的 title、direction、topic、intro 都要能直接支撑后续对应类型的口播文案生成。",
+    ])
+
+
+def _job_copy_preset(job: dict[str, Any]) -> str:
+    input_data = job.get("input") or {}
+    preset = _resolve_copy_preset(input_data.get("copy_preset") or "random")
+    if input_data.get("copy_preset") != preset:
+        input_data["copy_preset"] = preset
+        job["input"] = input_data
+    return preset
 
 
 def _default_copy_to_story_prompt() -> str:
@@ -192,7 +334,8 @@ def _state_or_default(job: dict[str, Any]) -> dict[str, Any]:
             "copy_text": "",
             "story": {"title": "", "style_preset": "", "shots": [], "project_id": project_id},
             "result_text": "{}",
-            "copy_prompt_preset": (job.get("input") or {}).get("copy_preset") or "reality",
+            "copy_prompt_preset": _job_copy_preset(job),
+            "storyboard_granularity": (job.get("input") or {}).get("storyboard_granularity") or "balanced",
             "image_size": (job.get("input") or {}).get("image_size") or "9:16",
             "intro_template": (job.get("input") or {}).get("intro_template") or "none",
             "intro_image_seconds": (job.get("input") or {}).get("intro_image_seconds") or "0.3",
@@ -205,6 +348,10 @@ def _state_or_default(job: dict[str, Any]) -> dict[str, Any]:
 def _write_state(job: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     state["project_id"] = job["project_id"]
     state["_lock_project_id"] = True
+    preset = _job_copy_preset(job)
+    current_preset = str(state.get("copy_prompt_preset") or "").strip()
+    if current_preset not in COPY_PROMPT_PRESETS:
+        state["copy_prompt_preset"] = preset
     selected_idea = job.get("artifacts", {}).get("selected_idea") or {}
     result = job.get("result") or {}
     if not str(state.get("topic") or "").strip() and result.get("topic"):
@@ -213,6 +360,7 @@ def _write_state(job: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
         state["theme_intro"] = result.get("theme_intro") or ""
     if not str(state.get("theme_brief") or "").strip():
         state["theme_brief"] = selected_idea.get("direction") or selected_idea.get("title") or (job.get("input") or {}).get("brief") or ""
+    state["storyboard_granularity"] = (job.get("input") or {}).get("storyboard_granularity") or state.get("storyboard_granularity") or "balanced"
     if (job.get("input") or {}).get("reference_collection_id"):
         state["reference_collection_id"] = (job.get("input") or {}).get("reference_collection_id") or ""
         state["auto_reference_enabled"] = bool((job.get("input") or {}).get("auto_reference_enabled"))
@@ -268,6 +416,15 @@ def _missing_image_indexes(shots: list[Any]) -> list[int]:
         for index, shot in enumerate(shots)
         if not _shot_has_image(shot)
     ]
+
+
+def _image_repair_concurrency(job: dict[str, Any]) -> int:
+    raw = (job.get("input") or {}).get("image_concurrency") or DEFAULT_IMAGE_JOB_CONCURRENCY
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = DEFAULT_IMAGE_JOB_CONCURRENCY
+    return max(1, min(value, DEFAULT_IMAGE_JOB_CONCURRENCY))
 
 
 def _clear_image_failure(shot: dict[str, Any]) -> None:
@@ -344,43 +501,60 @@ def _apply_repair_success(job: dict[str, Any], shot_index: int, result_story: di
     return str(target_shot.get("image_url") or "")
 
 
-def _repair_burst_once(job: dict[str, Any], shot_index: int, stage: str) -> tuple[bool, list[str]]:
+def _repair_burst_for_shots(
+    job: dict[str, Any],
+    shot_indexes: list[int],
+    stage: str,
+    attempts_per_shot: int,
+) -> tuple[set[int], dict[int, list[str]]]:
     state = _state_or_default(job)
     story = state.get("story") or {}
     shots = story.get("shots") if isinstance(story, dict) else []
-    if not isinstance(shots, list) or shot_index < 0 or shot_index >= len(shots):
+    if not isinstance(shots, list):
         raise AutoPipelineError("缺少分镜，无法自动补救图片")
-    if _shot_has_image(shots[shot_index]):
-        return True, []
-
+    active_indexes = [
+        index for index in sorted(set(shot_indexes))
+        if 0 <= index < len(shots) and not _shot_has_image(shots[index])
+    ]
+    if not active_indexes:
+        return set(), {}
     cfg = _image_config(job)
     fixed_prompt = (job.get("input") or {}).get("image_prompt") or _default_image_prompt()
     burst_id = f"{str(job.get('job_id') or 'auto')[-8:]}_{stage}_{now_ms()}"
-    successes: list[dict[str, Any]] = []
-    errors: list[str] = []
-    with ThreadPoolExecutor(max_workers=IMAGE_REPAIR_BURST_SIZE) as pool:
-        futures = [
+    successes: dict[int, list[dict[str, Any]]] = {index: [] for index in active_indexes}
+    errors: dict[int, list[str]] = {index: [] for index in active_indexes}
+    tasks = [
+        (shot_index, attempt)
+        for shot_index in active_indexes
+        for attempt in range(1, max(1, attempts_per_shot) + 1)
+    ]
+    with ThreadPoolExecutor(max_workers=min(max(1, len(tasks)), _image_repair_concurrency(job))) as pool:
+        futures = {
             pool.submit(
                 generate_one_story_image,
                 story,
                 shot_index,
                 cfg,
                 fixed_prompt,
-                filename_suffix=f"_{burst_id}_{attempt:02d}",
-            )
-            for attempt in range(1, IMAGE_REPAIR_BURST_SIZE + 1)
-        ]
+                filename_suffix=f"_{burst_id}_shot{shot_index + 1:02d}_{attempt:02d}",
+            ): shot_index
+            for shot_index, attempt in tasks
+        }
         for future in as_completed(futures):
             _check_cancelled(job)
+            shot_index = futures[future]
             try:
-                successes.append(future.result())
+                successes[shot_index].append(future.result())
             except Exception as exc:
-                errors.append(str(exc).splitlines()[0][:240])
-    if successes:
-        _apply_repair_success(job, shot_index, random.choice(successes), stage)
-        return True, errors
-    _mark_repair_failure(job, shot_index, errors, stage)
-    return False, errors
+                errors[shot_index].append(str(exc).splitlines()[0][:240])
+    repaired: set[int] = set()
+    for shot_index, results in successes.items():
+        if results:
+            _apply_repair_success(job, shot_index, random.choice(results), stage)
+            repaired.add(shot_index)
+        else:
+            _mark_repair_failure(job, shot_index, errors.get(shot_index) or [], stage)
+    return repaired, errors
 
 
 def _optimize_failed_image_prompt(job: dict[str, Any], shot_index: int) -> None:
@@ -405,38 +579,155 @@ def _optimize_failed_image_prompt(job: dict[str, Any], shot_index: int) -> None:
     _write_state(job, state)
 
 
+def _optimize_failed_image_prompts(job: dict[str, Any], shot_indexes: list[int], stage: str) -> tuple[set[int], set[int]]:
+    state = _state_or_default(job)
+    story = state.get("story") or {}
+    shots = story.get("shots") if isinstance(story, dict) else []
+    if not isinstance(shots, list):
+        raise AutoPipelineError("缺少分镜，无法优化失败镜头图片提示词")
+    active_indexes = [
+        index for index in sorted(set(shot_indexes))
+        if 0 <= index < len(shots) and not _shot_has_image(shots[index])
+    ]
+    if not active_indexes:
+        return set(), set()
+    prompt = (job.get("input") or {}).get("improve_image_prompt") or _default_improve_prompt()
+    cfg = _llm_config(job, 0.4)
+    optimized: dict[int, str] = {}
+    failed: dict[int, str] = {}
+    with ThreadPoolExecutor(max_workers=max(1, len(active_indexes))) as pool:
+        futures = {
+            pool.submit(improve_image_prompt, story, shot_index, cfg, prompt): shot_index
+            for shot_index in active_indexes
+        }
+        for future in as_completed(futures):
+            _check_cancelled(job)
+            shot_index = futures[future]
+            try:
+                data = future.result()
+                next_prompt = str(data.get("image_prompt") or "").strip()
+                if not next_prompt:
+                    raise AutoPipelineError("返回为空")
+                optimized[shot_index] = next_prompt
+            except Exception as exc:
+                failed[shot_index] = str(exc)
+
+    state = _state_or_default(job)
+    story = state.get("story") or {}
+    shots = story.get("shots") if isinstance(story, dict) else []
+    if not isinstance(shots, list):
+        raise AutoPipelineError("缺少分镜，无法写回优化后的图片提示词")
+    for shot_index, next_prompt in optimized.items():
+        if 0 <= shot_index < len(shots) and isinstance(shots[shot_index], dict):
+            shot = shots[shot_index]
+            shot["image_prompt"] = next_prompt
+            shot["_image_prompt_status"] = stage
+            shot["_image_prompt_auto_optimized_at"] = now_ms()
+            shot["_image_prompt_message"] = "失败补救时自动优化"
+            _clear_image_failure(shot)
+    for shot_index, message in failed.items():
+        _mark_repair_failure(job, shot_index, [message], stage)
+    story["project_id"] = job["project_id"]
+    state["story"] = story
+    _write_state(job, state)
+    return set(optimized), set(failed)
+
+
+def _chunk_indexes(indexes: list[int], size: int) -> list[list[int]]:
+    clean = sorted(set(indexes))
+    return [clean[index:index + size] for index in range(0, len(clean), size)]
+
+
 def _repair_missing_images(job: dict[str, Any], missing_indexes: list[int], total: int) -> dict[str, Any]:
     failed_indexes: list[int] = []
-    for position, shot_index in enumerate(missing_indexes, 1):
+    repair_concurrency = _image_repair_concurrency(job)
+    batches = _chunk_indexes(missing_indexes, repair_concurrency)
+    for batch_position, batch in enumerate(batches, 1):
         _check_cancelled(job)
         job = _set_step(
             job,
             "images",
             "waiting",
-            detail=f"第 {shot_index + 1} 个镜头失败，正在自动补抽 9 张（{position}/{len(missing_indexes)}）",
-            progress=0.78 + 0.04 * (position - 1) / max(len(missing_indexes), 1),
+            detail=f"{len(batch)} 个失败镜头正在先各补抽 1 张（批次 {batch_position}/{len(batches)}）",
+            progress=0.76 + 0.02 * (batch_position - 1) / max(len(batches), 1),
         )
-        ok, _errors = _repair_burst_once(job, shot_index, "retry9")
-        if ok:
+        repaired, _errors = _repair_burst_for_shots(job, batch, "retry1", IMAGE_REPAIR_SINGLE_RETRY_SIZE)
+        remaining = [index for index in batch if index not in repaired]
+        if not remaining:
             continue
         _check_cancelled(job)
         job = _set_step(
             job,
             "images",
             "waiting",
-            detail=f"第 {shot_index + 1} 个镜头 9 连抽失败，正在优化提示词后再抽 9 张",
-            progress=0.82 + 0.03 * (position - 1) / max(len(missing_indexes), 1),
+            detail=f"{len(remaining)} 个失败镜头正在按并发上限 {repair_concurrency} 批量补抽 {len(remaining) * IMAGE_REPAIR_BURST_SIZE} 张",
+            progress=0.79 + 0.02 * (batch_position - 1) / max(len(batches), 1),
         )
-        try:
-            _optimize_failed_image_prompt(job, shot_index)
-        except Exception as exc:
-            _mark_repair_failure(job, shot_index, [str(exc)], "optimize_prompt")
-            failed_indexes.append(shot_index)
+        repaired, _errors = _repair_burst_for_shots(job, remaining, "retry9", IMAGE_REPAIR_BURST_SIZE)
+        remaining = [index for index in remaining if index not in repaired]
+        if not remaining:
             continue
         _check_cancelled(job)
-        ok, _errors = _repair_burst_once(job, shot_index, "optimized9")
-        if not ok:
-            failed_indexes.append(shot_index)
+        job = _set_step(
+            job,
+            "images",
+            "waiting",
+            detail=f"{len(remaining)} 个失败镜头 9 连抽失败，正在优化提示词",
+            progress=0.82 + 0.02 * (batch_position - 1) / max(len(batches), 1),
+        )
+        optimized, optimize_failed = _optimize_failed_image_prompts(job, remaining, "optimized_after_retry9")
+        remaining = [index for index in remaining if index in optimized]
+        if remaining:
+            _check_cancelled(job)
+            job = _set_step(
+                job,
+                "images",
+                "waiting",
+                detail=f"{len(remaining)} 个失败镜头优化后正在按并发上限 {repair_concurrency} 批量补抽 {len(remaining) * IMAGE_REPAIR_BURST_SIZE} 张",
+                progress=0.84 + 0.02 * (batch_position - 1) / max(len(batches), 1),
+            )
+            repaired, _errors = _repair_burst_for_shots(job, remaining, "optimized9", IMAGE_REPAIR_BURST_SIZE)
+            remaining = [index for index in remaining if index not in repaired]
+        remaining.extend(index for index in optimize_failed if index not in remaining)
+        if remaining and (job.get("input") or {}).get("auto_infinite_image_retry"):
+            round_index = 1
+            while remaining:
+                _check_cancelled(job)
+                job = _set_step(
+                    job,
+                    "images",
+                    "waiting",
+                    detail=f"无限重抽第 {round_index} 轮：{len(remaining)} 个失败镜头优化提示词",
+                    progress=0.855,
+                )
+                optimized, optimize_failed = _optimize_failed_image_prompts(job, remaining, f"infinite_optimize_{round_index}")
+                retry_indexes = [index for index in remaining if index in optimized]
+                if retry_indexes:
+                    _check_cancelled(job)
+                    job = _set_step(
+                        job,
+                        "images",
+                        "waiting",
+                        detail=f"无限重抽第 {round_index} 轮：按并发上限 {repair_concurrency} 批量补抽 {len(retry_indexes) * IMAGE_REPAIR_INFINITE_BURST_SIZE} 张",
+                        progress=0.858,
+                    )
+                    repaired, _errors = _repair_burst_for_shots(
+                        job,
+                        retry_indexes,
+                        f"infinite{round_index}_retry4",
+                        IMAGE_REPAIR_INFINITE_BURST_SIZE,
+                    )
+                else:
+                    repaired = set()
+                remaining = [
+                    index for index in remaining
+                    if index not in repaired
+                ]
+                remaining.extend(index for index in optimize_failed if index not in remaining)
+                round_index += 1
+                if remaining:
+                    time.sleep(1)
+        failed_indexes.extend(index for index in remaining if index not in failed_indexes)
     if failed_indexes:
         state = _state_or_default(job)
         shots = ((state.get("story") or {}).get("shots") or [])
@@ -451,11 +742,18 @@ def _run_theme_ideas(job: dict[str, Any]) -> dict[str, Any]:
     if job["artifacts"].get("theme_ideas"):
         return _set_step(job, "theme_ideas", "skipped", detail="已有候选方向", progress=0.1)
     _set_step(job, "theme_ideas", "running", detail="正在生成候选方向", progress=0.05)
+    preset = _job_copy_preset(job)
+    style_instruction = _copy_preset_theme_instruction(preset)
+    job["artifacts"]["copy_preset"] = preset
+    job["artifacts"]["copy_preset_label"] = _copy_preset_theme_profile(preset)["label"]
+    job["result"]["copy_preset"] = preset
+    job["result"]["copy_preset_label"] = _copy_preset_theme_profile(preset)["label"]
     data = generate_theme_ideas(
         str((job.get("input") or {}).get("brief") or ""),
         _llm_config(job, 0.8),
         (job.get("input") or {}).get("theme_idea_prompt") or None,
         count=6,
+        instruction=style_instruction,
     )
     _check_cancelled(job)
     ideas = data.get("ideas") or []
@@ -482,6 +780,12 @@ def _run_select_idea(job: dict[str, Any]) -> dict[str, Any]:
 
 def _run_theme(job: dict[str, Any]) -> dict[str, Any]:
     state = _state_or_default(job)
+    preset = _job_copy_preset(job)
+    style_instruction = _copy_preset_theme_instruction(preset)
+    job["artifacts"]["copy_preset"] = preset
+    job["artifacts"]["copy_preset_label"] = _copy_preset_theme_profile(preset)["label"]
+    job["result"]["copy_preset"] = preset
+    job["result"]["copy_preset_label"] = _copy_preset_theme_profile(preset)["label"]
     if str(state.get("topic") or "").strip() and str(state.get("theme_intro") or "").strip():
         job["result"]["topic"] = state.get("topic") or ""
         job["result"]["theme_intro"] = state.get("theme_intro") or ""
@@ -491,10 +795,16 @@ def _run_theme(job: dict[str, Any]) -> dict[str, Any]:
     if not brief:
         selected = job["artifacts"].get("selected_idea") or {}
         brief = str(selected.get("direction") or selected.get("title") or "")
-    data = generate_topic_plan(brief or "请自动生成一个适合人生副本短视频的方向", _llm_config(job, 0.7), None)
+    theme_brief = "\n\n".join([
+        style_instruction,
+        f"用户原始顶层要求：{str((job.get('input') or {}).get('brief') or '').strip() or '未填写'}",
+        f"当前候选方向：{brief or '请自动生成一个适配上述文案类型的人生副本方向'}",
+    ])
+    data = generate_topic_plan(theme_brief, _llm_config(job, 0.7), None)
     _check_cancelled(job)
     state["topic"] = data["topic"]
     state["theme_intro"] = data["intro"]
+    state["copy_prompt_preset"] = preset
     job["result"]["topic"] = data["topic"]
     job["result"]["theme_intro"] = data["intro"]
     _write_state(job, state)
@@ -506,7 +816,7 @@ def _run_copy(job: dict[str, Any]) -> dict[str, Any]:
     if str(state.get("copy_text") or "").strip():
         return _set_step(job, "copy", "skipped", detail="已有口播文案", progress=0.38)
     _set_step(job, "copy", "running", detail="正在生成口播文案", progress=0.32)
-    preset = str((job.get("input") or {}).get("copy_preset") or "reality")
+    preset = _job_copy_preset(job)
     prompt = (job.get("input") or {}).get("copy_prompt") or _default_copy_prompt(preset)
     text = generate_text(str(state.get("topic") or ""), _llm_config(job, 0.8), prompt, str(state.get("theme_intro") or ""))
     _check_cancelled(job)
@@ -532,6 +842,7 @@ def _run_storyboard(job: dict[str, Any]) -> dict[str, Any]:
         _llm_config(job, 0.5),
         prompt,
         str(state.get("theme_intro") or ""),
+        str((job.get("input") or {}).get("storyboard_granularity") or "balanced"),
     )
     _check_cancelled(job)
     if not _story_has_valid_shots(story):
@@ -546,6 +857,7 @@ def _run_storyboard(job: dict[str, Any]) -> dict[str, Any]:
     state["story"] = story
     state["story_json"] = json.dumps(story, ensure_ascii=False, indent=2)
     state["copy_to_story_prompt"] = prompt
+    state["storyboard_granularity"] = (job.get("input") or {}).get("storyboard_granularity") or "balanced"
     state["image_size"] = image_size
     _write_state(job, state)
     return _set_step(job, "storyboard", "done", detail=f"分镜已生成：{len(story['shots'])} 个镜头", progress=0.52)
@@ -811,9 +1123,11 @@ def create_auto_pipeline_job(payload: dict[str, Any]) -> dict[str, Any]:
     project_id = normalize_project_id(payload.get("project_id") or "", brief or "自动流水线")
     job_id = make_job_id("auto")
     now = now_ms()
+    copy_preset = _resolve_copy_preset(payload.get("copy_preset") or "random")
+    copy_preset_label = _copy_preset_theme_profile(copy_preset)["label"]
     input_data = {
         "brief": brief,
-        "copy_preset": payload.get("copy_preset") or "reality",
+        "copy_preset": copy_preset,
         "image_size": payload.get("image_size") or "9:16",
         "reference_collection_id": payload.get("reference_collection_id") or "",
         "auto_reference_enabled": bool(payload.get("auto_reference_enabled")),
@@ -826,7 +1140,9 @@ def create_auto_pipeline_job(payload: dict[str, Any]) -> dict[str, Any]:
         "intro_sfx_id": payload.get("intro_sfx_id") or "default",
         "auto_optimize_image_prompts": payload.get("auto_optimize_image_prompts", True),
         "render_after_images": payload.get("render_after_images", True),
+        "auto_infinite_image_retry": bool(payload.get("auto_infinite_image_retry")),
         "image_concurrency": payload.get("image_concurrency") or DEFAULT_IMAGE_JOB_CONCURRENCY,
+        "storyboard_granularity": payload.get("storyboard_granularity") or "balanced",
         "theme_idea_prompt": payload.get("theme_idea_prompt") or "",
         "copy_prompt": payload.get("copy_prompt") or "",
         "copy_to_story_prompt": payload.get("copy_to_story_prompt") or "",
@@ -861,11 +1177,15 @@ def create_auto_pipeline_job(payload: dict[str, Any]) -> dict[str, Any]:
         "artifacts": {
             "theme_ideas": [],
             "selected_idea": None,
+            "copy_preset": copy_preset,
+            "copy_preset_label": copy_preset_label,
             "image_job_id": "",
             "render_job_id": "",
         },
         "result": {
             "topic": "",
+            "copy_preset": copy_preset,
+            "copy_preset_label": copy_preset_label,
             "video_url": "",
             "project_url": f"/workspace/projects/{project_id}",
         },

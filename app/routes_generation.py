@@ -103,7 +103,14 @@ def settings_test_image(req: ImageConnectionRequest) -> dict[str, Any]:
 @router.post("/api/text/copy-to-story")
 def text_copy_to_story(req: CopyToStoryRequest) -> dict[str, Any]:
     try:
-        return generate_story_from_copy(req.topic, req.copy_text, LLMConfig.from_payload(req.model_dump()), req.system_prompt, req.topic_intro)
+        return generate_story_from_copy(
+            req.topic,
+            req.copy_text,
+            LLMConfig.from_payload(req.model_dump()),
+            req.system_prompt,
+            req.topic_intro,
+            req.storyboard_granularity,
+        )
     except LLMError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

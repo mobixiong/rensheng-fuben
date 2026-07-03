@@ -15,6 +15,25 @@ THEME_IDEAS_PROMPT_PATH = ROOT / "prompts" / "theme_ideas.md"
 IMPROVE_IMAGE_PROMPT_PATH = ROOT / "prompts" / "image_prompt_improve.md"
 GEMINI_WEB2API_BASE_URL = "http://127.0.0.1:8081/v1"
 GEMINI_WEB2API_MODEL = "gemini-3.5-flash-thinking"
+STORYBOARD_GRANULARITY_RULES = {
+    "coarse": """分镜粒度模式：粗。
+- 目标是镜头更少、每个镜头承载更完整的一小段语义。
+- 每个 shot 的 voiceover 建议控制在 70 到 100 个中文字符左右，短段可以略低，但不要低于 55 字。
+- 一个 shot 可以覆盖同一地点、同一动作链或同一情绪推进下的连续 2 到 3 句口播。
+- 不要把同一场景里的连续动作拆成过多镜头；优先保留完整语义和观看流畅度。
+- 画面描述要概括这一小段口播的核心场景，不要为每个短句单独切镜头。""",
+    "balanced": """分镜粒度模式：平衡。
+- 目标是镜头数量和口播节奏均衡。
+- 每个 shot 的 voiceover 建议控制在 30 到 50 个中文字符左右；短句可以略低于 30 字，但不要超过 55 字。
+- 每段口播对应一个明确画面，再由口播总长度自然推导分镜数量。
+- 不要为了凑镜头数量把一句完整表达拆得过碎，也不要把多个明显不同的情绪、动作或场景塞进同一个 shot。""",
+    "fine": """分镜粒度模式：细。
+- 目标是镜头更密、节奏更快、画面变化更频繁。
+- 每个 shot 的 voiceover 建议控制在 18 到 30 个中文字符左右，原则上不要超过 35 字。
+- 每个动作、账单数字、情绪变化、场景切换、人物反应都可以单独成为一个 shot。
+- 适合强节奏短视频，但仍要保证 voiceover 来自原文，不要改写成另一种文风。""",
+}
+DEFAULT_STORYBOARD_GRANULARITY = "balanced"
 
 
 @dataclass
@@ -46,6 +65,20 @@ def load_default_prompt() -> str:
 
 def load_copy_to_story_prompt() -> str:
     return COPY_TO_STORY_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def _storyboard_granularity(value: str | None) -> str:
+    key = str(value or DEFAULT_STORYBOARD_GRANULARITY).strip().lower()
+    return key if key in STORYBOARD_GRANULARITY_RULES else DEFAULT_STORYBOARD_GRANULARITY
+
+
+def _append_storyboard_granularity(prompt: str, granularity: str | None) -> str:
+    key = _storyboard_granularity(granularity)
+    return "\n\n".join([
+        prompt.strip(),
+        "以下粒度规则优先级高于上文中关于 voiceover 字数、镜头数量和拆分密度的描述：",
+        STORYBOARD_GRANULARITY_RULES[key],
+    ])
 
 
 def load_theme_prompt() -> str:
@@ -270,8 +303,9 @@ def generate_story_from_copy(
     cfg: LLMConfig,
     system_prompt: str | None = None,
     topic_intro: str = "",
+    storyboard_granularity: str = DEFAULT_STORYBOARD_GRANULARITY,
 ) -> dict[str, Any]:
-    prompt = system_prompt or load_copy_to_story_prompt()
+    prompt = _append_storyboard_granularity(system_prompt or load_copy_to_story_prompt(), storyboard_granularity)
     user_parts = [
         f"主题：{topic}",
     ]

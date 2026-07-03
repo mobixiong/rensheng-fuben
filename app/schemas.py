@@ -16,6 +16,7 @@ class GenerateRequest(BaseModel):
 
 class CopyToStoryRequest(GenerateRequest):
     copy_text: str = Field(min_length=1)
+    storyboard_granularity: str = "balanced"
 
 
 class ThemePlanRequest(BaseModel):
@@ -138,7 +139,7 @@ class IntroPreviewRequest(BaseModel):
 class AutoPipelineRequest(BaseModel):
     project_id: str = ""
     brief: str = ""
-    copy_preset: str = "reality"
+    copy_preset: str = "random"
     image_size: str = "9:16"
     reference_collection_id: str = ""
     auto_reference_enabled: bool = False
@@ -151,7 +152,9 @@ class AutoPipelineRequest(BaseModel):
     intro_sfx_id: str = "default"
     auto_optimize_image_prompts: bool = True
     render_after_images: bool = True
+    auto_infinite_image_retry: bool = False
     image_concurrency: int = Field(default=100, ge=1, le=100)
+    storyboard_granularity: str = "balanced"
     theme_idea_prompt: str = ""
     copy_prompt: str = ""
     copy_to_story_prompt: str = ""

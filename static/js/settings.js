@@ -1,10 +1,14 @@
 import {
+  AUTO_COPY_PROMPT_PRESETS,
+  COPY_PRESET_THEME_INSTRUCTIONS,
   COPY_PROMPT_PRESETS,
   COPY_PROMPT_VERSION,
   COPY_TO_STORY_PROMPT_VERSION,
+  DEFAULT_AUTO_COPY_PROMPT_PRESET,
   DEFAULT_COPY_PROMPT_PRESET,
   DEFAULT_IMAGE_SIZE,
   DEFAULT_INTRO_TEMPLATE,
+  DEFAULT_STORYBOARD_GRANULARITY,
   GEMINI_WEB2API_DEFAULT_BASE_URL,
   GEMINI_WEB2API_DEFAULT_MODEL,
   IMAGE_CONCURRENCY_LIMIT,
@@ -15,8 +19,9 @@ import {
   MINIMAX_TTS_DEFAULT_MODEL,
   MINIMAX_TTS_DEFAULT_VOICE_ID,
   SETTINGS_KEY,
+  STORYBOARD_GRANULARITIES,
   THEME_IDEA_PROMPT_VERSION,
-} from "./constants.js";
+} from "./constants.js?v=20260703_copy_prompt_v9";
 
 const SECRET_SETTINGS_KEY = `${SETTINGS_KEY}-session-secrets`;
 const IMAGE_STYLE_PRESET_KEYS = ["short_video", "realistic", "cinematic", "anime"];
@@ -82,8 +87,33 @@ export function createSettings({ els }) {
     return COPY_PROMPT_PRESETS.includes(els.copyPromptPreset?.value) ? els.copyPromptPreset.value : DEFAULT_COPY_PROMPT_PRESET;
   }
 
+  function autoCopyPromptPreset() {
+    return AUTO_COPY_PROMPT_PRESETS.includes(els.autoCopyPreset?.value)
+      ? els.autoCopyPreset.value
+      : DEFAULT_AUTO_COPY_PROMPT_PRESET;
+  }
+
+  function themeStyleInstruction() {
+    const preset = copyPromptPreset();
+    return COPY_PRESET_THEME_INSTRUCTIONS[preset] || COPY_PRESET_THEME_INSTRUCTIONS.reality_reverse || "";
+  }
+
+  function themeBriefWithStyle(brief) {
+    const cleanBrief = String(brief || "").trim();
+    const instruction = themeStyleInstruction();
+    if (!instruction) return cleanBrief;
+    return [
+      instruction,
+      `用户原始选题方向：${cleanBrief || "未填写，请按上述文案类型自动给出方向"}`,
+    ].join("\n\n");
+  }
+
   function imageStylePreset() {
     return IMAGE_STYLE_PRESET_KEYS.includes(els.imageStylePreset?.value) ? els.imageStylePreset.value : "short_video";
+  }
+
+  function storyboardGranularity(value = els.storyboardGranularity?.value) {
+    return STORYBOARD_GRANULARITIES.includes(value) ? value : DEFAULT_STORYBOARD_GRANULARITY;
   }
 
   function imageStylePrompt(preset = imageStylePreset()) {
@@ -171,11 +201,13 @@ export function createSettings({ els }) {
       themeIntro: els.themeIntro?.value || "",
       themeRevision: els.themeRevision?.value || "",
       autoBrief: els.autoBrief?.value || "",
-      autoCopyPreset: els.autoCopyPreset?.value || DEFAULT_COPY_PROMPT_PRESET,
+      autoCopyPreset: autoCopyPromptPreset(),
+      autoStoryboardGranularity: storyboardGranularity(els.autoStoryboardGranularity?.value),
       autoImageSize: els.autoImageSize?.value || DEFAULT_IMAGE_SIZE,
       autoIntroTemplate: els.autoIntroTemplate?.value || DEFAULT_INTRO_TEMPLATE,
       autoTtsPreset: els.autoTtsPreset?.value || "male_fast",
       autoOptimizeImagePrompts: Boolean(els.autoOptimizeImagePrompts?.checked),
+      autoInfiniteImageRetry: Boolean(els.autoInfiniteImageRetry?.checked),
       autoRenderAfterImages: Boolean(els.autoRenderAfterImages?.checked),
       textProvider: els.textProvider.value,
       baseUrl: els.baseUrl.value,
@@ -201,6 +233,7 @@ export function createSettings({ els }) {
       voice: els.voice.value,
       rate: els.rate.value,
       copyPromptPreset: copyPromptPreset(),
+      storyboardGranularity: storyboardGranularity(),
       copyPrompt: els.copyPrompt.value,
       copyPromptVersion: COPY_PROMPT_VERSION,
       copyToStoryPrompt: els.copyToStoryPrompt?.value || "",
@@ -243,11 +276,15 @@ export function createSettings({ els }) {
       if (els.themeIntro && typeof s.themeIntro === "string") els.themeIntro.value = s.themeIntro;
       if (els.themeRevision && typeof s.themeRevision === "string") els.themeRevision.value = s.themeRevision;
       if (els.autoBrief && typeof s.autoBrief === "string") els.autoBrief.value = s.autoBrief;
-      if (els.autoCopyPreset) els.autoCopyPreset.value = COPY_PROMPT_PRESETS.includes(s.autoCopyPreset) ? s.autoCopyPreset : DEFAULT_COPY_PROMPT_PRESET;
+      if (els.autoCopyPreset) {
+        els.autoCopyPreset.value = AUTO_COPY_PROMPT_PRESETS.includes(s.autoCopyPreset) ? s.autoCopyPreset : DEFAULT_AUTO_COPY_PROMPT_PRESET;
+      }
+      if (els.autoStoryboardGranularity) els.autoStoryboardGranularity.value = storyboardGranularity(s.autoStoryboardGranularity);
       if (els.autoImageSize) els.autoImageSize.value = IMAGE_SIZES.includes(s.autoImageSize) ? s.autoImageSize : DEFAULT_IMAGE_SIZE;
       if (els.autoIntroTemplate) els.autoIntroTemplate.value = INTRO_TEMPLATES.includes(s.autoIntroTemplate) ? s.autoIntroTemplate : DEFAULT_INTRO_TEMPLATE;
       if (els.autoTtsPreset) els.autoTtsPreset.value = s.autoTtsPreset || "male_fast";
       if (els.autoOptimizeImagePrompts) els.autoOptimizeImagePrompts.checked = s.autoOptimizeImagePrompts !== false;
+      if (els.autoInfiniteImageRetry) els.autoInfiniteImageRetry.checked = Boolean(s.autoInfiniteImageRetry);
       if (els.autoRenderAfterImages) els.autoRenderAfterImages.checked = s.autoRenderAfterImages !== false;
       els.baseUrl.value = s.baseUrl || "";
       els.model.value = s.model || "";
@@ -284,6 +321,7 @@ export function createSettings({ els }) {
       if (els.copyPromptPreset) {
         els.copyPromptPreset.value = COPY_PROMPT_PRESETS.includes(s.copyPromptPreset) ? s.copyPromptPreset : DEFAULT_COPY_PROMPT_PRESET;
       }
+      if (els.storyboardGranularity) els.storyboardGranularity.value = storyboardGranularity(s.storyboardGranularity);
       if (els.imageStylePreset) {
         els.imageStylePreset.value = IMAGE_STYLE_PRESET_KEYS.includes(s.imageStylePreset) ? s.imageStylePreset : "short_video";
       }
@@ -305,19 +343,50 @@ export function createSettings({ els }) {
   }
 
   async function loadPromptDefaults(fetchJson, updatePromptMeta) {
-    const [copyData, copyXianxiaData, copyToStoryData, imageData, improveImageData, themeIdeaData] = await Promise.all([
+    const [
+      copyData,
+      copyBreakoutData,
+      copyStopLossData,
+      copyBurnoutSupportData,
+      copyXianxiaData,
+      copyWuxiaData,
+      copyZombieData,
+      copyOtherworldData,
+      copyCyberpunkData,
+      copyWeirdRulesData,
+      copyToStoryData,
+      imageData,
+      improveImageData,
+      themeIdeaData,
+    ] = await Promise.all([
       fetchJson("/api/prompt/default"),
+      fetchJson("/api/prompt/copy-reality-breakout"),
+      fetchJson("/api/prompt/copy-reality-stop-loss"),
+      fetchJson("/api/prompt/copy-reality-burnout-support"),
       fetchJson("/api/prompt/copy-xianxia"),
+      fetchJson("/api/prompt/copy-fantasy-wuxia"),
+      fetchJson("/api/prompt/copy-fantasy-zombie"),
+      fetchJson("/api/prompt/copy-fantasy-otherworld"),
+      fetchJson("/api/prompt/copy-fantasy-cyberpunk"),
+      fetchJson("/api/prompt/copy-fantasy-weird-rules"),
       fetchJson("/api/prompt/copy-to-story"),
       fetchJson("/api/prompt/image"),
       fetchJson("/api/prompt/improve-image"),
       fetchJson("/api/prompt/theme-ideas"),
     ]);
     defaultCopyPrompts = {
-      reality: copyData.prompt || "",
+      reality_reverse: copyData.prompt || "",
+      reality_breakout: copyBreakoutData.prompt || "",
+      reality_stop_loss: copyStopLossData.prompt || "",
+      reality_burnout_support: copyBurnoutSupportData.prompt || "",
       xianxia: copyXianxiaData.prompt || "",
+      fantasy_wuxia: copyWuxiaData.prompt || "",
+      fantasy_zombie: copyZombieData.prompt || "",
+      fantasy_otherworld: copyOtherworldData.prompt || "",
+      fantasy_cyberpunk: copyCyberpunkData.prompt || "",
+      fantasy_weird_rules: copyWeirdRulesData.prompt || "",
     };
-    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality || "";
+    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality_reverse || "";
     defaultCopyToStoryPrompt = copyToStoryData.prompt || "";
     defaultImagePrompt = imageData.prompt || "";
     defaultImproveImagePrompt = improveImageData.prompt || "";
@@ -341,7 +410,7 @@ export function createSettings({ els }) {
   }
 
   function resetCopyPrompt(updatePromptMeta, scheduleSave) {
-    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality || "";
+    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality_reverse || "";
     els.copyPrompt.value = defaultCopyPrompt;
     persist();
     updatePromptMeta();
@@ -349,7 +418,7 @@ export function createSettings({ els }) {
   }
 
   function applyCopyPromptPreset(updatePromptMeta, scheduleSave) {
-    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality || "";
+    defaultCopyPrompt = defaultCopyPrompts[copyPromptPreset()] || defaultCopyPrompts.reality_reverse || "";
     if (defaultCopyPrompt) els.copyPrompt.value = defaultCopyPrompt;
     persist();
     updatePromptMeta();
@@ -431,8 +500,9 @@ export function createSettings({ els }) {
   }
 
   function themePayload() {
+    const brief = els.themeBrief?.value.trim() || els.topic.value.trim();
     return {
-      brief: els.themeBrief?.value.trim() || els.topic.value.trim(),
+      brief: themeBriefWithStyle(brief),
       provider: els.textProvider.value,
       base_url: els.baseUrl.value.trim(),
       model: els.model.value.trim(),
@@ -442,6 +512,8 @@ export function createSettings({ els }) {
   }
 
   function themeIdeasPayload(extra = {}) {
+    const baseInstruction = themeStyleInstruction();
+    const extraInstruction = String(extra.instruction || "").trim();
     return {
       brief: els.themeBrief?.value.trim() || "",
       provider: els.textProvider.value,
@@ -452,6 +524,7 @@ export function createSettings({ els }) {
       system_prompt: els.themeIdeaPrompt?.value || "",
       count: 6,
       ...extra,
+      instruction: [baseInstruction, extraInstruction].filter(Boolean).join("\n\n"),
     };
   }
 
@@ -469,6 +542,7 @@ export function createSettings({ els }) {
       topic: els.topic.value.trim(),
       topic_intro: els.themeIntro?.value.trim() || "",
       copy_text: copyText.trim(),
+      storyboard_granularity: storyboardGranularity(),
       provider: els.textProvider.value,
       base_url: els.baseUrl.value.trim(),
       model: els.model.value.trim(),
@@ -520,7 +594,8 @@ export function createSettings({ els }) {
     return {
       project_id: "",
       brief: els.autoBrief?.value.trim() || "",
-      copy_preset: COPY_PROMPT_PRESETS.includes(els.autoCopyPreset?.value) ? els.autoCopyPreset.value : copyPromptPreset(),
+      copy_preset: autoCopyPromptPreset(),
+      storyboard_granularity: storyboardGranularity(els.autoStoryboardGranularity?.value),
       image_size: IMAGE_SIZES.includes(els.autoImageSize?.value) ? els.autoImageSize.value : (els.imageSize?.value || DEFAULT_IMAGE_SIZE),
       reference_collection_id: els.projectReferenceCollection?.value || "",
       auto_reference_enabled: Boolean(els.autoReferenceEnabled?.checked && els.projectReferenceCollection?.value),
@@ -532,10 +607,11 @@ export function createSettings({ els }) {
       bgm_id: els.bgmSelect?.value || "none",
       intro_sfx_id: els.introSfxSelect?.value || "default",
       auto_optimize_image_prompts: els.autoOptimizeImagePrompts?.checked !== false,
+      auto_infinite_image_retry: Boolean(els.autoInfiniteImageRetry?.checked),
       render_after_images: els.autoRenderAfterImages?.checked !== false,
       image_concurrency: IMAGE_CONCURRENCY_LIMIT,
       theme_idea_prompt: els.themeIdeaPrompt?.value || "",
-      copy_prompt: els.copyPrompt?.value || "",
+      copy_prompt: autoCopyPromptPreset() === "random" ? "" : (defaultCopyPrompts[autoCopyPromptPreset()] || els.copyPrompt?.value || ""),
       copy_to_story_prompt: els.copyToStoryPrompt?.value || "",
       image_prompt: els.imagePrompt?.value || "",
       improve_image_prompt: els.improveImagePrompt?.value || "",

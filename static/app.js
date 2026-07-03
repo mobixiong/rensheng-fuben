@@ -1,10 +1,10 @@
 import * as api from "./js/api.js";
 import { $ , createUi } from "./js/ui.js";
-import { createSettings } from "./js/settings.js";
+import { createSettings } from "./js/settings.js?v=20260703_copy_prompt_v9";
 import { createStoryView } from "./js/story-view.js";
-import { createProjectStore } from "./js/project-store.js";
+import { createProjectStore } from "./js/project-store.js?v=20260703_copy_prompt_v9";
 import { createReferenceAssets } from "./js/reference-assets.js";
-import { createWorkflow } from "./js/workflow.js?v=20260702_image_poll_fix";
+import { createWorkflow } from "./js/workflow.js?v=20260703_auto_loop";
 import { createThemeWorkflow } from "./js/workflow-theme.js?v=20260702_theme_direction_fix";
 
 const ui = createUi();
@@ -19,6 +19,9 @@ const state = {
   imageGenerationActive: false,
   activeImageJobs: new Map(),
   activeAutoPipelineJob: null,
+  autoPipelineContinuous: false,
+  autoPipelineLoopRunning: false,
+  autoPipelinePlaybackToken: 0,
   projectSaveQueue: Promise.resolve(),
   referenceCollectionId: "",
   autoReferenceEnabled: false,
@@ -449,11 +452,15 @@ function bindEvents() {
     settings.persist();
     projectStore.scheduleSave();
   });
-  for (const id of ["autoBrief", "autoCopyPreset", "autoImageSize", "autoIntroTemplate", "autoTtsPreset"]) {
+  for (const id of ["autoBrief", "autoCopyPreset", "autoStoryboardGranularity", "autoImageSize", "autoIntroTemplate", "autoTtsPreset"]) {
     $(id)?.addEventListener("input", settings.persist);
     $(id)?.addEventListener("change", settings.persist);
   }
-  for (const id of ["autoOptimizeImagePrompts", "autoRenderAfterImages"]) {
+  els.storyboardGranularity?.addEventListener("change", () => {
+    settings.persist();
+    projectStore.scheduleSave();
+  });
+  for (const id of ["autoOptimizeImagePrompts", "autoInfiniteImageRetry", "autoRenderAfterImages"]) {
     $(id)?.addEventListener("change", settings.persist);
   }
   els.topic.addEventListener("input", () => {
