@@ -6,9 +6,21 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .image_status import (
+    IMAGE_JOB_DONE,
+    IMAGE_JOB_FAILED,
+    IMAGE_STATUS_ERROR,
+    IMAGE_STATUS_PENDING,
+    IMAGE_STATUS_POLICY_ERROR,
+    TERMINAL_IMAGE_ITEM_STATUSES,
+    has_shot_image,
+    mark_image_done,
+    mark_image_failure,
+    normalize_persisted_image_state,
+    should_keep_incoming_image_error,
+)
 from .paths import ACTIVE_PROJECT, LEGACY_PROJECT_STATE, PROJECTS_DIR, WORKSPACE
 
-TRANSIENT_IMAGE_STATUSES = {"generating", "retrying", "redrawing"}
 PROMPT_POLICY_ERROR_MARKERS = (
     "content_policy_violation",
     "policy_violation",
@@ -144,45 +156,10 @@ def _project_image_for_index(image_dir: Path, index: int) -> Path | None:
     return matches[0] if matches else None
 
 
-def _clear_image_runtime_fields(shot: dict[str, Any]) -> None:
-    shot.pop("_image_job", None)
-    shot.pop("_image_attempt", None)
-    shot.pop("_image_status_started_at", None)
-    shot.pop("_image_status_updated_at", None)
-
-
-def _image_job_status(shot: dict[str, Any]) -> str:
-    job = shot.get("_image_job")
-    if isinstance(job, dict) and job.get("status") in TRANSIENT_IMAGE_STATUSES:
-        return str(job.get("status"))
-    if shot.get("_image_status") in TRANSIENT_IMAGE_STATUSES:
-        return str(shot.get("_image_status"))
-    return ""
-
-
 def _mark_shot_image_done(shot: dict[str, Any], project_id: str, image_path: Path) -> None:
     shot["image_path"] = str(image_path.resolve())
     shot["image_url"] = f"/workspace/projects/{project_id}/images/{image_path.name}"
-    shot["_image_status"] = "done"
-    _clear_image_runtime_fields(shot)
-    shot.pop("_image_error", None)
-    shot.pop("_image_error_category", None)
-    shot.pop("_image_error_code", None)
-
-
-def _sync_existing_image_reference(shot: dict[str, Any], project_id: str, image_path: Path) -> None:
-    shot["image_path"] = str(image_path.resolve())
-    shot["image_url"] = f"/workspace/projects/{project_id}/images/{image_path.name}"
-    _clear_image_runtime_fields(shot)
-
-
-def _has_terminal_image_error(shot: dict[str, Any]) -> bool:
-    return bool(
-        shot.get("_image_error")
-        or shot.get("_image_status") in {"error", "policy_error"}
-        or shot.get("_image_error_category")
-        or shot.get("_image_error_code")
-    )
+    mark_image_done(shot)
 
 
 def _has_prompt_policy_error(value: Any) -> bool:
@@ -215,11 +192,11 @@ def _mark_prompt_policy_errors(state: dict[str, Any]) -> None:
     for shot in shots:
         if not isinstance(shot, dict):
             continue
-        if shot.get("image_path") or shot.get("image_url"):
+        if has_shot_image(shot):
             continue
         if shot.get("_image_error"):
             continue
-        if shot.get("_image_status") not in {None, "", "pending", "error", "policy_error"}:
+        if str(shot.get("_image_status") or "") not in {"", IMAGE_STATUS_PENDING, IMAGE_STATUS_ERROR, IMAGE_STATUS_POLICY_ERROR}:
             continue
         candidates.append(shot)
 
@@ -228,7 +205,7 @@ def _mark_prompt_policy_errors(state: dict[str, Any]) -> None:
         return
 
     for shot in candidates:
-        shot["_image_status"] = "policy_error"
+        shot["_image_status"] = IMAGE_STATUS_POLICY_ERROR
         shot["_image_error"] = PROMPT_POLICY_ERROR_MESSAGE
         shot["_image_error_category"] = "prompt_policy"
         shot["_image_error_code"] = "content_policy_violation"
@@ -258,30 +235,30 @@ def _apply_latest_image_job_statuses(state: dict[str, Any], project_id: str) -> 
             if index in seen or index < 0 or index >= len(shots) or not isinstance(shots[index], dict):
                 continue
             status = str(item.get("status") or "")
-            if status not in {"done", "failed", "cancelled"}:
+            if status not in TERMINAL_IMAGE_ITEM_STATUSES:
                 continue
             seen.add(index)
             shot = shots[index]
-            if status == "done":
-                if shot.get("image_path") or shot.get("image_url"):
-                    shot["_image_status"] = "done"
-                    _clear_image_runtime_fields(shot)
-                    shot.pop("_image_error", None)
-                    shot.pop("_image_error_category", None)
-                    shot.pop("_image_error_code", None)
+            if has_shot_image(shot):
+                mark_image_done(shot)
                 continue
-            if status != "failed":
+            if status == IMAGE_JOB_DONE:
+                image_url = str(item.get("image_url") or "").strip()
+                if image_url and not shot.get("image_url"):
+                    shot["image_url"] = image_url
+                    image_path = _workspace_path_from_url(image_url)
+                    if image_path is not None:
+                        shot["image_path"] = str(image_path)
+                normalize_persisted_image_state(shot)
+                continue
+            if status != IMAGE_JOB_FAILED:
                 continue
             error = str(item.get("error") or "").strip()
             category = str(item.get("error_category") or "").strip()
             code = str(item.get("error_code") or "").strip()
             if not error and not category and not code:
                 continue
-            shot["_image_status"] = "policy_error" if category == "prompt_policy" else "error"
-            shot["_image_error"] = error or "图片生成失败"
-            shot["_image_error_category"] = category or "unknown"
-            shot["_image_error_code"] = code
-            _clear_image_runtime_fields(shot)
+            mark_image_failure(shot, message=error or "图片生成失败", category=category or "unknown", code=code)
 
 
 def _preserve_existing_image_errors(state: dict[str, Any], target_project_dir: Path) -> None:
@@ -305,11 +282,11 @@ def _preserve_existing_image_errors(state: dict[str, Any], target_project_dir: P
         existing_shot = existing_shots[index]
         if not isinstance(existing_shot, dict):
             continue
-        if existing_shot.get("_image_status") != "policy_error":
+        if existing_shot.get("_image_status") != IMAGE_STATUS_POLICY_ERROR:
             continue
-        if shot.get("image_path") or shot.get("image_url"):
+        if has_shot_image(shot):
             continue
-        if shot.get("_image_status") not in {None, "", "pending", "error", "policy_error"}:
+        if not should_keep_incoming_image_error(shot):
             continue
         for key in ("_image_status", "_image_error", "_image_error_category", "_image_error_code"):
             if existing_shot.get(key):
@@ -342,20 +319,9 @@ def _copy_project_images(state: dict[str, Any], target_project_dir: Path) -> Non
         else:
             target = _project_image_for_index(image_dir, index)
         if target and target.exists():
-            if _has_terminal_image_error(shot):
-                _sync_existing_image_reference(shot, state["project_id"], target)
-            else:
-                _mark_shot_image_done(shot, state["project_id"], target)
-        elif _image_job_status(shot):
-            if shot.get("_image_error"):
-                shot["_image_status"] = "error"
-                _clear_image_runtime_fields(shot)
-                continue
-            shot["_image_status"] = "pending"
-            _clear_image_runtime_fields(shot)
-            shot.pop("_image_error", None)
-            shot.pop("_image_error_category", None)
-            shot.pop("_image_error_code", None)
+            _mark_shot_image_done(shot, state["project_id"], target)
+        else:
+            normalize_persisted_image_state(shot)
     _mark_prompt_policy_errors(state)
     _apply_latest_image_job_statuses(state, state["project_id"])
 
@@ -405,20 +371,9 @@ def hydrate_project_images(state: dict[str, Any], project_id: str) -> dict[str, 
             continue
         image_path = _project_image_for_index(image_dir, index) if image_dir.exists() else None
         if image_path and image_path.exists():
-            if _has_terminal_image_error(shot):
-                _sync_existing_image_reference(shot, project_id, image_path)
-            else:
-                _mark_shot_image_done(shot, project_id, image_path)
-        elif _image_job_status(shot):
-            if shot.get("_image_error"):
-                shot["_image_status"] = "error"
-                _clear_image_runtime_fields(shot)
-                continue
-            shot["_image_status"] = "pending"
-            _clear_image_runtime_fields(shot)
-            shot.pop("_image_error", None)
-            shot.pop("_image_error_category", None)
-            shot.pop("_image_error_code", None)
+            _mark_shot_image_done(shot, project_id, image_path)
+        else:
+            normalize_persisted_image_state(shot)
     _mark_prompt_policy_errors(state)
     _apply_latest_image_job_statuses(state, project_id)
     _sync_cover_from_selected_shot(state)

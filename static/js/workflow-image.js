@@ -20,8 +20,42 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     return state.imageJobPollers;
   }
 
+  function currentImagePollingToken() {
+    return Number(state.imageJobPollingToken || 0);
+  }
+
+  function nextImagePollingToken() {
+    state.imageJobPollingToken = currentImagePollingToken() + 1;
+    return state.imageJobPollingToken;
+  }
+
+  function imageJobPollerKey(job) {
+    return `${job?.project_id || ""}:${job?.job_id || ""}`;
+  }
+
+  function isCurrentProjectJob(job) {
+    if (!job?.project_id) return false;
+    return !state.currentProjectId || state.currentProjectId === job.project_id;
+  }
+
+  function isCurrentPoller(job, pollingToken) {
+    return currentImagePollingToken() === pollingToken && isCurrentProjectJob(job);
+  }
+
   function syncImageGenerationActive() {
     state.imageGenerationActive = imageJobs().size > 0;
+  }
+
+  function clearImageJobPollers(options = {}) {
+    const { render = true } = options;
+    nextImagePollingToken();
+    for (const timer of imageJobPollers().values()) {
+      window.clearTimeout(timer);
+    }
+    imageJobPollers().clear();
+    imageJobs().clear();
+    syncImageGenerationActive();
+    if (render) storyView.renderShotGrid();
   }
 
   function modeUiStatus(job, item) {
@@ -32,7 +66,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
   }
 
   function applyJobToActiveMap(job) {
-    if (!job?.job_id) return;
+    if (!job?.job_id || !isCurrentProjectJob(job)) return;
     for (const [index, value] of Array.from(imageJobs().entries())) {
       if (value?.jobId === job.job_id) imageJobs().delete(index);
     }
@@ -50,13 +84,18 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     storyView.renderShotGrid();
   }
 
-  function clearJobFromActiveMap(job) {
+  function clearJobFromActiveMap(job, options = {}) {
+    const { render = true } = options;
     if (!job?.job_id) return;
+    let changed = false;
     for (const [index, value] of Array.from(imageJobs().entries())) {
-      if (value?.jobId === job.job_id) imageJobs().delete(index);
+      if (value?.jobId === job.job_id) {
+        imageJobs().delete(index);
+        changed = true;
+      }
     }
     syncImageGenerationActive();
-    storyView.renderShotGrid();
+    if (changed && render) storyView.renderShotGrid();
   }
 
   function jobSummary(job) {
@@ -83,34 +122,61 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
   async function pollImageJob(job) {
     if (!job?.job_id || !job?.project_id) return;
     const pollers = imageJobPollers();
-    if (pollers.has(job.job_id)) return;
+    const pollerKey = imageJobPollerKey(job);
+    if (pollers.has(pollerKey)) return;
+    const pollingToken = currentImagePollingToken();
 
     const tick = async () => {
+      if (!isCurrentPoller(job, pollingToken)) {
+        clearJobFromActiveMap(job, { render: false });
+        pollers.delete(pollerKey);
+        return;
+      }
       try {
         const data = await api.fetchJson(`/api/image/jobs/${encodeURIComponent(job.project_id)}/${encodeURIComponent(job.job_id)}`);
         const latest = data.job;
+        if (!latest) throw new Error("图片任务不存在");
+        if (!isCurrentPoller(latest, pollingToken)) {
+          clearJobFromActiveMap(job, { render: false });
+          pollers.delete(pollerKey);
+          return;
+        }
         applyJobToActiveMap(latest);
         await refreshProjectStory().catch(() => null);
+        if (!isCurrentPoller(latest, pollingToken)) {
+          clearJobFromActiveMap(latest, { render: false });
+          pollers.delete(pollerKey);
+          return;
+        }
         els.result.textContent = JSON.stringify(jobSummary(latest), null, 2);
         if (TERMINAL_JOB_STATUSES.has(latest.status)) {
           clearJobFromActiveMap(latest);
-          pollers.delete(job.job_id);
+          pollers.delete(pollerKey);
           await projectStore.loadList().catch(() => null);
+          if (!isCurrentPoller(latest, pollingToken)) return;
           ui.setStatus(latest.status === "failed" ? "部分失败" : "就绪", latest.status === "failed" ? "error" : "");
           return;
         }
         const timer = window.setTimeout(tick, JOB_POLL_INTERVAL_MS);
-        pollers.set(job.job_id, timer);
+        pollers.set(pollerKey, timer);
       } catch (err) {
+        if (!isCurrentPoller(job, pollingToken)) {
+          pollers.delete(pollerKey);
+          return;
+        }
         clearJobFromActiveMap(job);
         await refreshProjectStory().catch(() => null);
-        pollers.delete(job.job_id);
+        if (!isCurrentPoller(job, pollingToken)) {
+          pollers.delete(pollerKey);
+          return;
+        }
+        pollers.delete(pollerKey);
         ui.setStatus("任务轮询失败，已刷新图片状态", "error");
         els.result.textContent = String(err.message || err);
       }
     };
 
-    pollers.set(job.job_id, window.setTimeout(tick, 0));
+    pollers.set(pollerKey, window.setTimeout(tick, 0));
   }
 
   function activeShotIndexes() {
@@ -202,8 +268,12 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
   }
 
   async function restoreActiveImageJobs() {
+    clearImageJobPollers({ render: false });
     const projectId = state.currentProjectId;
-    if (!projectId) return;
+    if (!projectId) {
+      storyView.renderShotGrid();
+      return;
+    }
     const data = await api.fetchJson(`/api/image/jobs?project_id=${encodeURIComponent(projectId)}&active_only=true`).catch(() => null);
     const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
     if (!jobs.length) {
@@ -266,6 +336,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     }
   }
   return {
+    clearImageJobPollers,
     generateImagesParallel,
     redrawShot,
     redrawSelectedShots,

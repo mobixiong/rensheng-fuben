@@ -1,12 +1,13 @@
-import { IMAGE_JOB_STATUS, IMAGE_STATUS, IMAGE_SIZES } from "./constants.js";
+import { IMAGE_SIZES } from "./constants.js";
 import { escapeHtml } from "./html.js";
-import { currentImageJobStatus, finalImageStatus, hasImageJobStatus } from "./image-state.js";
+import { imageDisplayState } from "./image-state.js";
 
 export function createStoryView({
   els,
   getSelectedShots,
   setSelectedShots,
   getActiveTab,
+  getActiveImageJob,
   getActiveImageStatus,
   onStoryChanged,
 }) {
@@ -249,60 +250,14 @@ export function createStoryView({
     els.shotGrid.innerHTML = shots.map((shot, index) => {
       const src = shotImageSrc(shot);
       const ratio = shotImageRatio(shot, story);
-      const rawStatus = shot._image_status || "";
-      const activeStatus = getActiveImageStatus?.(index) || "";
-      const activeJobStatus = hasImageJobStatus(activeStatus) ? activeStatus : "";
-      const jobStatus = activeJobStatus || currentImageJobStatus(shot);
-      const errorText = String(shot._image_error || "");
-      const hasPolicyError = rawStatus === IMAGE_STATUS.policyError
-        || shot._image_error_category === "prompt_policy"
-        || errorText.includes("content_policy_violation")
-        || errorText.includes("提示词被内容安全策略拦截")
-        || errorText.includes("不合规")
-        || errorText.includes("防护限制");
-      const status = jobStatus
-        || (hasPolicyError
-          ? IMAGE_STATUS.policyError
-          : errorText
-            ? IMAGE_STATUS.error
-            : finalImageStatus(shot, Boolean(src)));
-      const attempt = shot._image_job?.attempt || shot._image_attempt || "";
-      const placeholderText = status === IMAGE_JOB_STATUS.redrawing
-        ? "重抽中"
-        : status === IMAGE_JOB_STATUS.generating
-        ? "生成中"
-        : status === IMAGE_JOB_STATUS.retrying
-          ? `重试中 ${attempt}`
-          : status === IMAGE_STATUS.policyError
-            ? "提示词不合规<br />请修改后重试"
-          : status === IMAGE_STATUS.error
-            ? "生成失败"
-            : "等待生成";
-      const isJobStatus = hasImageJobStatus(status);
-      const placeholderClass = isJobStatus ? " generating" : status === IMAGE_STATUS.policyError ? " policy-error" : status === IMAGE_STATUS.error ? " error" : "";
-      const statusLabel = status === IMAGE_JOB_STATUS.redrawing
-        ? "重抽中"
-        : status === IMAGE_JOB_STATUS.generating
-          ? "生成中"
-          : status === IMAGE_JOB_STATUS.retrying
-            ? "重试中"
-            : status === IMAGE_STATUS.policyError
-              ? "提示词不合规"
-            : status === IMAGE_STATUS.error
-              ? "失败"
-              : src
-                ? "已完成"
-                : "等待中";
-      const statusClass = isJobStatus
-        ? "generating"
-        : status === IMAGE_STATUS.policyError
-          ? "policy-error"
-        : status === IMAGE_STATUS.error
-          ? "error"
-          : src
-            ? "done"
-            : "pending";
-      const isImageBusy = isJobStatus;
+      const activeJob = getActiveImageJob?.(index) || null;
+      const activeStatus = activeJob?.status || getActiveImageStatus?.(index) || "";
+      const displayState = imageDisplayState(shot, { activeJob, activeStatus, hasImage: Boolean(src) });
+      const placeholderText = displayState.placeholderText;
+      const placeholderClass = displayState.placeholderClass;
+      const statusLabel = displayState.statusLabel;
+      const statusClass = displayState.statusClass;
+      const isImageBusy = displayState.isBusy;
       const redrawDisabled = isImageBusy ? " disabled" : "";
       const redrawTitle = isImageBusy ? statusLabel : "重抽";
       const errorTitle = shot._image_error ? ` title="${escapeHtml(String(shot._image_error))}"` : "";

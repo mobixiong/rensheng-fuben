@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -117,7 +118,7 @@ def check_browser_dom(base_url: str) -> None:
     if completed.returncode != 0:
         raise AssertionError(f"browser DOM failed: {completed.stderr[:500]}")
     dom = completed.stdout
-    check('type="module"' in dom and "/static/app.js" in dom, "browser module script loaded")
+    check(has_app_module_entry(dom), "browser module script loaded")
     check('id="status">就绪</div>' in dom, "browser boot status", "就绪")
     check('class="shot-card' in dom, "browser shot cards rendered")
     check('status-pill error' not in dom, "browser has no boot error")
@@ -156,6 +157,10 @@ def check_external_connections(base_url: str) -> None:
         print("[SKIP] image connection: missing .env image config")
 
 
+def has_app_module_entry(html: str) -> bool:
+    return bool(re.search(r'<script[^>]+type=["\']module["\'][^>]+src=["\']/static/app\.js(?:\?[^"\']*)?["\']', html))
+
+
 def run(base_url: str, include_external: bool) -> None:
     for path in [
         "/api/health",
@@ -171,7 +176,7 @@ def run(base_url: str, include_external: bool) -> None:
 
     status, content_type, index_html = read_text(f"{base_url}/")
     check(status == 200 and "text/html" in content_type, "GET /", content_type)
-    check('type="module" src="/static/app.js"' in index_html, "index module entry")
+    check(has_app_module_entry(index_html), "index module entry")
 
     for path in [
         "/static/app.js",

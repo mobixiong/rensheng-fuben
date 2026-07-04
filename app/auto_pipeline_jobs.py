@@ -6,6 +6,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+from .auto_image_repair import ImageRepairHooks, ImageRepairPolicy, repair_missing_images
+from .image_status import (
+    IMAGE_STATUS_ERROR,
+    clear_image_error_fields,
+    clear_image_runtime_fields,
+    mark_image_done,
+)
 from .image_adapter import ImageConfig, generate_one_story_image
 from .image_jobs import DEFAULT_IMAGE_JOB_CONCURRENCY, cancel_image_job, create_image_job, get_image_job
 from .job_store import list_jobs, make_job_id, normalize_project_id, now_ms, public_job, read_job, save_job
@@ -20,9 +27,12 @@ from .llm_adapter import (
 from .paths import ROOT
 from .project_service import project_dir, read_project_state, safe_project_id, write_project_files
 from .render_service import create_render_job, get_render_job
+from .job_health import mark_orphaned_active_job
 
 
 AUTO_ACTIVE_STATUSES = {"queued", "running", "waiting_child_job"}
+RENDER_STALL_SECONDS = 30 * 60
+_RENDER_STALL_MSG = "渲染任务长时间无进展，疑似后台渲染已停止，请重试"
 STEP_KEYS = [
     ("theme_ideas", "生成选题方向"),
     ("select_idea", "选择方向"),
@@ -38,6 +48,7 @@ _runner = ThreadPoolExecutor(max_workers=2)
 _lock = threading.RLock()
 _cancelled: set[str] = set()
 _runtime_secrets: dict[str, dict[str, Any]] = {}
+_ACTIVE_AUTO_IDS: set[str] = set()
 IMAGE_REPAIR_SINGLE_RETRY_SIZE = 1
 IMAGE_REPAIR_BURST_SIZE = 9
 IMAGE_REPAIR_INFINITE_BURST_SIZE = 4
@@ -253,7 +264,6 @@ def _set_step(job: dict[str, Any], key: str, status: str, *, detail: str = "", e
 
 
 def _save(job: dict[str, Any]) -> dict[str, Any]:
-    job["updated_at"] = now_ms()
     return save_job(job)
 
 
@@ -428,16 +438,8 @@ def _image_repair_concurrency(job: dict[str, Any]) -> int:
 
 
 def _clear_image_failure(shot: dict[str, Any]) -> None:
-    for key in (
-        "_image_error",
-        "_image_error_category",
-        "_image_error_code",
-        "_image_status_started_at",
-        "_image_status_updated_at",
-        "_image_job",
-        "_image_attempt",
-    ):
-        shot.pop(key, None)
+    clear_image_error_fields(shot)
+    clear_image_runtime_fields(shot)
 
 
 def _mark_repair_failure(job: dict[str, Any], shot_index: int, errors: list[str], stage: str) -> None:
@@ -450,7 +452,7 @@ def _mark_repair_failure(job: dict[str, Any], shot_index: int, errors: list[str]
     if not isinstance(shot, dict):
         return
     message = "；".join(error for error in errors if error)[:1000]
-    shot["_image_status"] = "error"
+    shot["_image_status"] = IMAGE_STATUS_ERROR
     shot["_image_error"] = message or "自动补救生图失败"
     shot["_image_error_category"] = "auto_repair_failed"
     shot["_image_error_code"] = stage
@@ -487,11 +489,10 @@ def _apply_repair_success(job: dict[str, Any], shot_index: int, result_story: di
     ):
         if source_shot.get(key):
             target_shot[key] = source_shot[key]
-    target_shot["_image_status"] = "done"
+    mark_image_done(target_shot)
     target_shot["_image_version"] = now_ms()
     target_shot["_image_repair_stage"] = stage
     target_shot["_image_repaired_at"] = now_ms()
-    _clear_image_failure(target_shot)
     story["project_id"] = job["project_id"]
     state["story"] = story
     payload = _write_state(job, state)
@@ -633,109 +634,28 @@ def _optimize_failed_image_prompts(job: dict[str, Any], shot_indexes: list[int],
     return set(optimized), set(failed)
 
 
-def _chunk_indexes(indexes: list[int], size: int) -> list[list[int]]:
-    clean = sorted(set(indexes))
-    return [clean[index:index + size] for index in range(0, len(clean), size)]
-
-
 def _repair_missing_images(job: dict[str, Any], missing_indexes: list[int], total: int) -> dict[str, Any]:
-    failed_indexes: list[int] = []
-    repair_concurrency = _image_repair_concurrency(job)
-    batches = _chunk_indexes(missing_indexes, repair_concurrency)
-    for batch_position, batch in enumerate(batches, 1):
-        _check_cancelled(job)
-        job = _set_step(
-            job,
-            "images",
-            "waiting",
-            detail=f"{len(batch)} 个失败镜头正在先各补抽 1 张（批次 {batch_position}/{len(batches)}）",
-            progress=0.76 + 0.02 * (batch_position - 1) / max(len(batches), 1),
-        )
-        repaired, _errors = _repair_burst_for_shots(job, batch, "retry1", IMAGE_REPAIR_SINGLE_RETRY_SIZE)
-        remaining = [index for index in batch if index not in repaired]
-        if not remaining:
-            continue
-        _check_cancelled(job)
-        job = _set_step(
-            job,
-            "images",
-            "waiting",
-            detail=f"{len(remaining)} 个失败镜头正在按并发上限 {repair_concurrency} 批量补抽 {len(remaining) * IMAGE_REPAIR_BURST_SIZE} 张",
-            progress=0.79 + 0.02 * (batch_position - 1) / max(len(batches), 1),
-        )
-        repaired, _errors = _repair_burst_for_shots(job, remaining, "retry9", IMAGE_REPAIR_BURST_SIZE)
-        remaining = [index for index in remaining if index not in repaired]
-        if not remaining:
-            continue
-        _check_cancelled(job)
-        job = _set_step(
-            job,
-            "images",
-            "waiting",
-            detail=f"{len(remaining)} 个失败镜头 9 连抽失败，正在优化提示词",
-            progress=0.82 + 0.02 * (batch_position - 1) / max(len(batches), 1),
-        )
-        optimized, optimize_failed = _optimize_failed_image_prompts(job, remaining, "optimized_after_retry9")
-        remaining = [index for index in remaining if index in optimized]
-        if remaining:
-            _check_cancelled(job)
-            job = _set_step(
-                job,
-                "images",
-                "waiting",
-                detail=f"{len(remaining)} 个失败镜头优化后正在按并发上限 {repair_concurrency} 批量补抽 {len(remaining) * IMAGE_REPAIR_BURST_SIZE} 张",
-                progress=0.84 + 0.02 * (batch_position - 1) / max(len(batches), 1),
-            )
-            repaired, _errors = _repair_burst_for_shots(job, remaining, "optimized9", IMAGE_REPAIR_BURST_SIZE)
-            remaining = [index for index in remaining if index not in repaired]
-        remaining.extend(index for index in optimize_failed if index not in remaining)
-        if remaining and (job.get("input") or {}).get("auto_infinite_image_retry"):
-            round_index = 1
-            while remaining:
-                _check_cancelled(job)
-                job = _set_step(
-                    job,
-                    "images",
-                    "waiting",
-                    detail=f"无限重抽第 {round_index} 轮：{len(remaining)} 个失败镜头优化提示词",
-                    progress=0.855,
-                )
-                optimized, optimize_failed = _optimize_failed_image_prompts(job, remaining, f"infinite_optimize_{round_index}")
-                retry_indexes = [index for index in remaining if index in optimized]
-                if retry_indexes:
-                    _check_cancelled(job)
-                    job = _set_step(
-                        job,
-                        "images",
-                        "waiting",
-                        detail=f"无限重抽第 {round_index} 轮：按并发上限 {repair_concurrency} 批量补抽 {len(retry_indexes) * IMAGE_REPAIR_INFINITE_BURST_SIZE} 张",
-                        progress=0.858,
-                    )
-                    repaired, _errors = _repair_burst_for_shots(
-                        job,
-                        retry_indexes,
-                        f"infinite{round_index}_retry4",
-                        IMAGE_REPAIR_INFINITE_BURST_SIZE,
-                    )
-                else:
-                    repaired = set()
-                remaining = [
-                    index for index in remaining
-                    if index not in repaired
-                ]
-                remaining.extend(index for index in optimize_failed if index not in remaining)
-                round_index += 1
-                if remaining:
-                    time.sleep(1)
-        failed_indexes.extend(index for index in remaining if index not in failed_indexes)
-    if failed_indexes:
-        state = _state_or_default(job)
-        shots = ((state.get("story") or {}).get("shots") or [])
-        failure_detail = _image_failure_message(job, shots, [index + 1 for index in failed_indexes]) if isinstance(shots, list) else ""
-        suffix = f"失败镜头：{failure_detail}" if failure_detail else f"失败镜头：{', '.join(str(index + 1) for index in failed_indexes)}"
-        success = total - len(failed_indexes)
-        raise AutoPipelineError(f"图片自动补救后仍未完成：成功 {success}/{total}，失败 {len(failed_indexes)}。{suffix}")
-    return _latest_job(job) or job
+    return repair_missing_images(
+        job,
+        missing_indexes,
+        total,
+        hooks=ImageRepairHooks(
+            check_cancelled=_check_cancelled,
+            set_step=_set_step,
+            repair_burst_for_shots=_repair_burst_for_shots,
+            optimize_failed_image_prompts=_optimize_failed_image_prompts,
+            state_or_default=_state_or_default,
+            latest_job=_latest_job,
+            image_failure_message=_image_failure_message,
+            image_repair_concurrency=_image_repair_concurrency,
+            error_factory=AutoPipelineError,
+        ),
+        policy=ImageRepairPolicy(
+            single_retry_size=IMAGE_REPAIR_SINGLE_RETRY_SIZE,
+            burst_size=IMAGE_REPAIR_BURST_SIZE,
+            infinite_burst_size=IMAGE_REPAIR_INFINITE_BURST_SIZE,
+        ),
+    )
 
 
 def _run_theme_ideas(job: dict[str, Any]) -> dict[str, Any]:
@@ -1018,6 +938,23 @@ def _render_payload(job: dict[str, Any], state: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _render_updated_seconds(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    # save_job persists updated_at as integer epoch milliseconds (now_ms()); the
+    # legacy "YYYY-MM-DD HH:MM:SS" string form came from the old time.strftime path.
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            return time.time() - float(value) / 1000.0
+        except (TypeError, ValueError, OSError, OverflowError):
+            return None
+    text = str(value).strip()
+    try:
+        return time.time() - time.mktime(time.strptime(text, "%Y-%m-%d %H:%M:%S"))
+    except Exception:
+        return None
+
+
 def _wait_render_job(job: dict[str, Any]) -> dict[str, Any]:
     render_job_id = str(job["artifacts"].get("render_job_id") or "")
     if not render_job_id:
@@ -1027,6 +964,10 @@ def _wait_render_job(job: dict[str, Any]) -> dict[str, Any]:
         render_job = get_render_job(render_job_id, str(job["project_id"]))
         if not render_job:
             raise AutoPipelineError("渲染任务丢失")
+        if render_job.get("status") == "running":
+            ma = _render_updated_seconds(render_job.get("updated_at"))
+            if ma is not None and ma > RENDER_STALL_SECONDS:
+                raise AutoPipelineError(_RENDER_STALL_MSG)
         job["artifacts"]["render_job"] = render_job
         progress = float(render_job.get("progress") or 0)
         job = _set_step(job, "render", "waiting", detail=str(render_job.get("detail") or render_job.get("stage") or "渲染中"), progress=0.9 + 0.09 * progress)
@@ -1072,6 +1013,7 @@ def _run_pipeline(job_id: str, project_id: str) -> None:
                 return
             job["status"] = "running"
             _save(job)
+        _ACTIVE_AUTO_IDS.add(job_id)
         for runner in (
             _run_theme_ideas,
             _run_select_idea,
@@ -1094,8 +1036,6 @@ def _run_pipeline(job_id: str, project_id: str) -> None:
             job["detail"] = "自动流水线完成"
             job["progress"] = 1
             _save(job)
-            _cancelled.discard(job_id)
-            _runtime_secrets.pop(job_id, None)
     except Exception as exc:
         with _lock:
             try:
@@ -1114,8 +1054,10 @@ def _run_pipeline(job_id: str, project_id: str) -> None:
                 except Exception:
                     pass
             _save(job)
-            _cancelled.discard(job_id)
-            _runtime_secrets.pop(job_id, None)
+    finally:
+        _ACTIVE_AUTO_IDS.discard(job_id)
+        _cancelled.discard(job_id)
+        _runtime_secrets.pop(job_id, None)
 
 
 def create_auto_pipeline_job(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1197,9 +1139,20 @@ def create_auto_pipeline_job(payload: dict[str, Any]) -> dict[str, Any]:
     return _public(job)
 
 
+def _mark_auto_stale_if_orphaned(job: dict[str, Any]) -> dict[str, Any]:
+    return mark_orphaned_active_job(
+        job,
+        active_statuses=AUTO_ACTIVE_STATUSES,
+        terminal_status="failed",
+        active_ids=_ACTIVE_AUTO_IDS,
+        grace_ms=60 * 1000,
+        error_message="自动流水线已中断，当前没有后台线程在运行。请重新启动。",
+    )
+
+
 def get_auto_pipeline_job(project_id: str, job_id: str) -> dict[str, Any]:
     with _lock:
-        return _public(_read(project_id, job_id))
+        return _public(_mark_auto_stale_if_orphaned(_read(project_id, job_id)))
 
 
 def list_auto_pipeline_jobs(project_id: str, active_only: bool = False) -> list[dict[str, Any]]:
@@ -1238,11 +1191,16 @@ def resume_auto_pipeline_job(project_id: str, job_id: str, payload: dict[str, An
         job["detail"] = "等待恢复自动流水线"
         job["error"] = ""
         for step in job.get("steps", []):
-            if step.get("status") == "cancelled":
+            if step.get("status") in {"cancelled", "failed"}:
                 step["status"] = "pending"
                 step["detail"] = ""
                 step["error"] = ""
                 step["updated_at"] = now_ms()
+                key = str(step.get("key") or "")
+                if key in {"images", "render"}:
+                    child_field = "image_job_id" if key == "images" else "render_job_id"
+                    if job.get("artifacts", {}).get(child_field):
+                        job["artifacts"][child_field] = ""
         _save(job)
     _runner.submit(_run_pipeline, job_id, project_id)
     return _public(job)

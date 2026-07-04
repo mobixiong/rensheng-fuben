@@ -2,19 +2,32 @@ import json
 import re
 import threading
 import time
-import uuid
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any
 
+from .image_status import (
+    ACTIVE_IMAGE_ITEM_STATUSES,
+    IMAGE_JOB_CANCELLED,
+    IMAGE_JOB_DONE,
+    IMAGE_JOB_FAILED,
+    IMAGE_JOB_QUEUED,
+    IMAGE_JOB_RETRYING,
+    IMAGE_JOB_RUNNING,
+    TERMINAL_IMAGE_ITEM_STATUSES,
+    mark_image_done,
+    mark_image_failure,
+)
 from .image_adapter import ImageConfig, ImageError, generate_one_story_image
+from .job_store import jobs_dir, make_job_id, normalize_project_id, now_ms, public_job, read_job, save_job
+from .job_health import mark_orphaned_active_job
 from .llm_adapter import LLMConfig, select_primary_reference_asset
 from .project_service import project_dir, read_project_state, safe_project_id, write_project_files
 from .reference_assets import assets_for_llm, resolve_asset
 
 
-ACTIVE_JOB_STATUSES = {"queued", "running"}
-TERMINAL_ITEM_STATUSES = {"done", "failed", "cancelled"}
+ACTIVE_JOB_STATUSES = {IMAGE_JOB_QUEUED, IMAGE_JOB_RUNNING, IMAGE_JOB_RETRYING}
+IMAGE_JOB_KIND = "image"
+IMAGE_JOB_FILE_PREFIX = "img_"
 DEFAULT_IMAGE_JOB_CONCURRENCY = 100
 MAX_IMAGE_JOB_CONCURRENCY = 100
 IMAGE_JOB_RETRY_LIMIT = 2
@@ -26,39 +39,8 @@ _cancelled: set[str] = set()
 _active_job_ids: set[str] = set()
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
 def _project_id_from_story(story: dict[str, Any], fallback: str = "") -> str:
-    raw = str(fallback or story.get("project_id") or "").strip().replace("\\", "/").strip("/")
-    if raw.startswith("projects/"):
-        raw = raw[len("projects/"):]
-    return safe_project_id(raw, str(story.get("title") or ""))
-
-
-def _jobs_dir(project_id: str) -> Path:
-    path = project_dir(project_id) / "jobs"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _job_path(project_id: str, job_id: str) -> Path:
-    return _jobs_dir(project_id) / f"{job_id}.json"
-
-
-def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
-
-
-def _read_job(project_id: str, job_id: str) -> dict[str, Any]:
-    path = _job_path(project_id, job_id)
-    if not path.exists():
-        raise FileNotFoundError(job_id)
-    return json.loads(path.read_text(encoding="utf-8"))
+    return normalize_project_id(fallback or story.get("project_id") or "", str(story.get("title") or ""))
 
 
 def _bind_job_to_project(job: dict[str, Any], project_id: str) -> dict[str, Any]:
@@ -102,14 +84,13 @@ def _replace_job_project_refs(value: Any, old_project_id: str, new_project_id: s
 
 
 def _save_job(job: dict[str, Any]) -> dict[str, Any]:
-    job["updated_at"] = _now_ms()
-    job["done"] = sum(1 for item in job.get("items", []) if item.get("status") == "done")
-    job["failed"] = sum(1 for item in job.get("items", []) if item.get("status") == "failed")
-    job["cancelled"] = sum(1 for item in job.get("items", []) if item.get("status") == "cancelled")
-    job["active"] = sum(1 for item in job.get("items", []) if item.get("status") in {"running", "retrying"})
+    job.setdefault("kind", IMAGE_JOB_KIND)
+    job["done"] = sum(1 for item in job.get("items", []) if item.get("status") == IMAGE_JOB_DONE)
+    job["failed"] = sum(1 for item in job.get("items", []) if item.get("status") == IMAGE_JOB_FAILED)
+    job["cancelled"] = sum(1 for item in job.get("items", []) if item.get("status") == IMAGE_JOB_CANCELLED)
+    job["active"] = sum(1 for item in job.get("items", []) if item.get("status") in {IMAGE_JOB_RUNNING, IMAGE_JOB_RETRYING})
     job["active_peak"] = max(int(job.get("active_peak") or 0), int(job.get("active") or 0))
-    _write_json_atomic(_job_path(job["project_id"], job["job_id"]), job)
-    return job
+    return save_job(job)
 
 
 def _update_item(
@@ -138,35 +119,50 @@ def _update_item(
             item["error_code"] = error_code
         if image_url is not None:
             item["image_url"] = image_url
-        item["updated_at"] = _now_ms()
+        item["updated_at"] = now_ms()
         break
 
 
 def _public_job(job: dict[str, Any]) -> dict[str, Any]:
-    public = json.loads(json.dumps(job, ensure_ascii=False))
-    public.pop("fixed_prompt", None)
-    return public
+    return public_job(job)
 
 
-def _mark_stale_if_orphaned(job: dict[str, Any]) -> dict[str, Any]:
+def _is_image_job(job: dict[str, Any]) -> bool:
+    kind = str(job.get("kind") or "").strip()
     job_id = str(job.get("job_id") or "")
-    if job.get("status") not in ACTIVE_JOB_STATUSES or job_id in _active_job_ids:
-        return job
-    updated_at = int(job.get("updated_at") or 0)
-    if updated_at and _now_ms() - updated_at < STALE_ACTIVE_JOB_GRACE_MS:
-        return job
+    return kind == IMAGE_JOB_KIND or (not kind and job_id.startswith(IMAGE_JOB_FILE_PREFIX))
+
+
+def _read_image_job(project_id: str, job_id: str) -> dict[str, Any]:
+    job = read_job(project_id, job_id)
+    if not _is_image_job(job):
+        raise FileNotFoundError(job_id)
+    return job
+
+
+def _mark_image_children_stale(job: dict[str, Any]) -> None:
     for item in job.get("items", []):
-        if item.get("status") in {"queued", "running", "retrying"}:
-            item["status"] = "failed"
+        if item.get("status") in ACTIVE_IMAGE_ITEM_STATUSES:
+            item["status"] = IMAGE_JOB_FAILED
             item["error"] = "图片任务已中断，当前没有后台生成线程在运行。请重新点击批量生成图片。"
             item["error_category"] = "stalled"
             item["error_code"] = "worker_stopped"
-            item["updated_at"] = _now_ms()
-    job["status"] = "failed"
-    job["stalled"] = True
-    job["stalled_at"] = _now_ms()
-    job["error"] = "图片任务已中断，当前没有后台生成线程在运行。"
-    return _save_job(job)
+            item["updated_at"] = now_ms()
+
+
+def _mark_stale_if_orphaned(job: dict[str, Any]) -> dict[str, Any]:
+    if not _is_image_job(job):
+        return job
+    return mark_orphaned_active_job(
+        job,
+        active_statuses=ACTIVE_JOB_STATUSES,
+        terminal_status=IMAGE_JOB_FAILED,
+        active_ids=_active_job_ids,
+        grace_ms=STALE_ACTIVE_JOB_GRACE_MS,
+        error_message="图片任务已中断，当前没有后台生成线程在运行。",
+        mark_children=_mark_image_children_stale,
+        save=_save_job,
+    )
 
 
 def _item_error(exc: Exception) -> tuple[str, str, str]:
@@ -202,10 +198,8 @@ def _apply_success(project_id: str, shot_index: int, result_story: dict[str, Any
     ):
         if source_shot.get(key):
             target_shot[key] = source_shot[key]
-    target_shot["_image_status"] = "done"
-    target_shot["_image_version"] = _now_ms()
-    for key in ("_image_job", "_image_attempt", "_image_status_started_at", "_image_status_updated_at", "_image_error", "_image_error_code", "_image_error_category"):
-        target_shot.pop(key, None)
+    mark_image_done(target_shot)
+    target_shot["_image_version"] = now_ms()
     current_story["project_id"] = project_id
     state["project_id"] = project_id
     write_project_files(state, set_active=False)
@@ -218,12 +212,7 @@ def _apply_failure(project_id: str, shot_index: int, exc: Exception) -> tuple[st
     current_story = state.get("story")
     if isinstance(current_story, dict) and isinstance(current_story.get("shots"), list) and 0 <= shot_index < len(current_story["shots"]):
         shot = current_story["shots"][shot_index]
-        shot["_image_status"] = "policy_error" if category == "prompt_policy" else "error"
-        shot["_image_error"] = message
-        shot["_image_error_category"] = category
-        shot["_image_error_code"] = code
-        for key in ("_image_job", "_image_attempt", "_image_status_started_at", "_image_status_updated_at"):
-            shot.pop(key, None)
+        mark_image_failure(shot, message=message, category=category, code=code)
         state["project_id"] = project_id
         current_story["project_id"] = project_id
         write_project_files(state, set_active=False)
@@ -232,23 +221,23 @@ def _apply_failure(project_id: str, shot_index: int, exc: Exception) -> tuple[st
 
 def _claim_next(job: dict[str, Any]) -> int | None:
     for item in job.get("items", []):
-        if item.get("status") == "queued":
-            item["status"] = "running"
-            item["updated_at"] = _now_ms()
+        if item.get("status") == IMAGE_JOB_QUEUED:
+            item["status"] = IMAGE_JOB_RUNNING
+            item["updated_at"] = now_ms()
             return int(item["shot_index"])
     return None
 
 
 def _finish_job_if_ready(job: dict[str, Any]) -> None:
     items = job.get("items", [])
-    if not items or any(item.get("status") not in TERMINAL_ITEM_STATUSES for item in items):
+    if not items or any(item.get("status") not in TERMINAL_IMAGE_ITEM_STATUSES for item in items):
         return
-    if any(item.get("status") == "failed" for item in items):
-        job["status"] = "failed"
-    elif any(item.get("status") == "cancelled" for item in items):
-        job["status"] = "cancelled"
+    if any(item.get("status") == IMAGE_JOB_FAILED for item in items):
+        job["status"] = IMAGE_JOB_FAILED
+    elif any(item.get("status") == IMAGE_JOB_CANCELLED for item in items):
+        job["status"] = IMAGE_JOB_CANCELLED
     else:
-        job["status"] = "done"
+        job["status"] = IMAGE_JOB_DONE
     _save_job(job)
 
 
@@ -258,20 +247,20 @@ def _run_item(job: dict[str, Any], shot_index: int, story: dict[str, Any], cfg: 
     for attempt in range(1, IMAGE_JOB_RETRY_LIMIT + 2):
         if job["job_id"] in _cancelled:
             with _lock:
-                current = _read_job(project_id, job["job_id"])
-                _update_item(current, shot_index, status="cancelled", attempt=attempt)
+                current = read_job(project_id, job["job_id"])
+                _update_item(current, shot_index, status=IMAGE_JOB_CANCELLED, attempt=attempt)
                 _save_job(current)
             return
         with _lock:
-            current = _read_job(project_id, job["job_id"])
-            _update_item(current, shot_index, status="retrying" if attempt > 1 else "running", attempt=attempt)
+            current = read_job(project_id, job["job_id"])
+            _update_item(current, shot_index, status=IMAGE_JOB_RETRYING if attempt > 1 else IMAGE_JOB_RUNNING, attempt=attempt)
             _save_job(current)
         try:
             result_story = generate_one_story_image(story, shot_index, cfg, fixed_prompt)
             with _lock:
                 image_url = _apply_success(project_id, shot_index, result_story)
-                current = _read_job(project_id, job["job_id"])
-                _update_item(current, shot_index, status="done", attempt=attempt, error="", error_category="", error_code="", image_url=image_url)
+                current = read_job(project_id, job["job_id"])
+                _update_item(current, shot_index, status=IMAGE_JOB_DONE, attempt=attempt, error="", error_category="", error_code="", image_url=image_url)
                 _save_job(current)
             return
         except Exception as exc:
@@ -280,15 +269,15 @@ def _run_item(job: dict[str, Any], shot_index: int, story: dict[str, Any], cfg: 
                 continue
             with _lock:
                 message, category, code = _apply_failure(project_id, shot_index, exc)
-                current = _read_job(project_id, job["job_id"])
-                _update_item(current, shot_index, status="failed", attempt=attempt, error=message, error_category=category, error_code=code)
+                current = read_job(project_id, job["job_id"])
+                _update_item(current, shot_index, status=IMAGE_JOB_FAILED, attempt=attempt, error=message, error_category=category, error_code=code)
                 _save_job(current)
             return
     if last_error is not None:
         with _lock:
             message, category, code = _apply_failure(project_id, shot_index, last_error)
-            current = _read_job(project_id, job["job_id"])
-            _update_item(current, shot_index, status="failed", error=message, error_category=category, error_code=code)
+            current = read_job(project_id, job["job_id"])
+            _update_item(current, shot_index, status=IMAGE_JOB_FAILED, error=message, error_category=category, error_code=code)
             _save_job(current)
 
 
@@ -296,19 +285,19 @@ def _run_job(job_id: str, project_id: str, story: dict[str, Any], cfg: ImageConf
     try:
         with _lock:
             _active_job_ids.add(job_id)
-            job = _read_job(project_id, job_id)
-            job["status"] = "running"
+            job = read_job(project_id, job_id)
+            job["status"] = IMAGE_JOB_RUNNING
             _save_job(job)
 
         def worker() -> None:
             while True:
                 with _lock:
-                    current = _read_job(project_id, job_id)
+                    current = read_job(project_id, job_id)
                     if job_id in _cancelled:
                         for item in current.get("items", []):
-                            if item.get("status") in {"queued", "running", "retrying"}:
-                                item["status"] = "cancelled"
-                                item["updated_at"] = _now_ms()
+                            if item.get("status") in ACTIVE_IMAGE_ITEM_STATUSES:
+                                item["status"] = IMAGE_JOB_CANCELLED
+                                item["updated_at"] = now_ms()
                         _finish_job_if_ready(current)
                         return
                     shot_index = _claim_next(current)
@@ -326,7 +315,7 @@ def _run_job(job_id: str, project_id: str, story: dict[str, Any], cfg: ImageConf
                 except Exception:
                     pass
         with _lock:
-            current = _read_job(project_id, job_id)
+            current = read_job(project_id, job_id)
             _finish_job_if_ready(current)
             _cancelled.discard(job_id)
     finally:
@@ -366,7 +355,7 @@ def _apply_primary_references(
                 "collection_id": collection_id,
                 "reason": selection.get("reason") or "",
                 "selection_type": selection.get("selection_type") or "none",
-                "selected_at": _now_ms(),
+                "selected_at": now_ms(),
             }
         if selected_id and selected_id in assets_by_id:
             asset = assets_by_id[selected_id]
@@ -436,13 +425,14 @@ def create_image_job(
             write_project_files(state, set_active=False)
         except Exception:
             pass
-    job_id = f"img_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    now = _now_ms()
+    job_id = make_job_id(IMAGE_JOB_FILE_PREFIX.rstrip("_"))
+    now = now_ms()
     job = {
         "job_id": job_id,
+        "kind": IMAGE_JOB_KIND,
         "project_id": project_id,
         "mode": mode,
-        "status": "queued",
+        "status": IMAGE_JOB_QUEUED,
         "total": len(indexes),
         "done": 0,
         "failed": 0,
@@ -455,7 +445,7 @@ def create_image_job(
         "items": [
             {
                 "shot_index": index,
-                "status": "queued",
+                "status": IMAGE_JOB_QUEUED,
                 "attempt": 0,
                 "error": "",
                 "error_category": "",
@@ -476,17 +466,19 @@ def create_image_job(
 def get_image_job(project_id: str, job_id: str) -> dict[str, Any]:
     project_id = safe_project_id(project_id)
     with _lock:
-        return _public_job(_mark_stale_if_orphaned(_bind_job_to_project(_read_job(project_id, job_id), project_id)))
+        return _public_job(_mark_stale_if_orphaned(_bind_job_to_project(_read_image_job(project_id, job_id), project_id)))
 
 
 def list_project_jobs(project_id: str, active_only: bool = False) -> list[dict[str, Any]]:
     project_id = safe_project_id(project_id)
-    path = _jobs_dir(project_id)
+    path = jobs_dir(project_id)
     jobs: list[dict[str, Any]] = []
-    for item in sorted(path.glob("*.json"), key=lambda file: file.stat().st_mtime, reverse=True):
+    for item in sorted(path.glob(f"{IMAGE_JOB_FILE_PREFIX}*.json"), key=lambda file: file.stat().st_mtime, reverse=True):
         try:
             job = json.loads(item.read_text(encoding="utf-8"))
         except Exception:
+            continue
+        if not _is_image_job(job):
             continue
         job = _bind_job_to_project(job, project_id)
         job = _mark_stale_if_orphaned(job)
@@ -499,13 +491,14 @@ def list_project_jobs(project_id: str, active_only: bool = False) -> list[dict[s
 def cancel_image_job(project_id: str, job_id: str) -> dict[str, Any]:
     project_id = safe_project_id(project_id)
     with _lock:
-        job = _bind_job_to_project(_read_job(project_id, job_id), project_id)
+        job = _bind_job_to_project(_read_image_job(project_id, job_id), project_id)
         _cancelled.add(job_id)
         for item in job.get("items", []):
-            if item.get("status") == "queued":
-                item["status"] = "cancelled"
-                item["updated_at"] = _now_ms()
-        if job.get("status") == "queued":
-            job["status"] = "cancelled"
+            if item.get("status") == IMAGE_JOB_QUEUED:
+                item["status"] = IMAGE_JOB_CANCELLED
+                item["updated_at"] = now_ms()
+        if job.get("status") == IMAGE_JOB_QUEUED:
+            job["status"] = IMAGE_JOB_CANCELLED
+        _finish_job_if_ready(job)
         _save_job(job)
         return _public_job(job)

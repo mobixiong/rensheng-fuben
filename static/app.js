@@ -18,6 +18,8 @@ const state = {
   currentProjectId: "",
   imageGenerationActive: false,
   activeImageJobs: new Map(),
+  imageJobPollers: new Map(),
+  imageJobPollingToken: 0,
   activeAutoPipelineJob: null,
   autoPipelineContinuous: false,
   autoPipelineLoopRunning: false,
@@ -35,6 +37,16 @@ const layoutKeys = {
   topbar: "lifeCopy.topbarExpanded",
   imagePrompt: "lifeCopy.imagePromptExpanded",
 };
+
+function on(target, type, handler, options) {
+  const element = typeof target === "string" ? $(target) : target;
+  element?.addEventListener(type, handler, options);
+  return element;
+}
+
+function onEach(ids, type, handler, options) {
+  for (const id of ids) on(id, type, handler, options);
+}
 
 function readLayoutFlag(key, fallback = false) {
   try {
@@ -188,6 +200,27 @@ function syncThemeMirrors() {
   if (els.themeIntroMirror) els.themeIntroMirror.textContent = els.themeIntro?.value.trim() || "未填写主题介绍";
 }
 
+function activeImageJobForShot(index) {
+  const shotIndex = Number(index);
+  if (!Number.isInteger(shotIndex) || !(state.activeImageJobs instanceof Map)) return null;
+  const job = state.activeImageJobs.get(shotIndex);
+  if (!job) return null;
+  if (state.currentProjectId && job.projectId && job.projectId !== state.currentProjectId) return null;
+  return job;
+}
+
+function persistAndSave({ promptMeta = false, themeMirror = false } = {}) {
+  if (themeMirror) syncThemeMirrors();
+  settings.persist();
+  if (promptMeta) storyView.updatePromptMeta();
+  projectStore.scheduleSave();
+}
+
+function promptMetaAndSave() {
+  storyView.updatePromptMeta();
+  projectStore.scheduleSave();
+}
+
 const settings = createSettings({ els });
 
 const storyView = createStoryView({
@@ -195,7 +228,8 @@ const storyView = createStoryView({
   getSelectedShots: () => state.selectedShots,
   setSelectedShots,
   getActiveTab: () => state.activeTab,
-  getActiveImageStatus: (index) => state.activeImageJobs?.get(Number(index))?.status || "",
+  getActiveImageJob: activeImageJobForShot,
+  getActiveImageStatus: (index) => activeImageJobForShot(index)?.status || "",
   onStoryChanged: () => projectStore?.scheduleSave(),
 });
 
@@ -252,6 +286,7 @@ function bindEvents() {
     const openProjectButton = event.target.closest("[data-open-project]");
     if (openProjectButton) {
       workflow.clearThemeIdeas?.();
+      workflow.clearImageJobPollers?.();
       projectStore.activate(openProjectButton.dataset.openProject).then(() => {
         workflow.restoreActiveImageJobs?.();
         workflow.restoreActiveAutoPipelineJobs?.();
@@ -262,6 +297,9 @@ function bindEvents() {
     const deleteProjectButton = event.target.closest("[data-delete-project]");
     if (deleteProjectButton) {
       workflow.clearThemeIdeas?.();
+      if (deleteProjectButton.dataset.deleteProject === state.currentProjectId) {
+        workflow.clearImageJobPollers?.();
+      }
       projectStore.remove(deleteProjectButton.dataset.deleteProject);
       return;
     }
@@ -322,53 +360,58 @@ function bindEvents() {
     openImagePreviewFromThumb(thumb);
   });
 
-  $("loadExample").addEventListener("click", workflow.loadExample);
-  $("startAutoPipeline")?.addEventListener("click", workflow.startAutoPipeline);
-  $("cancelAutoPipeline")?.addEventListener("click", workflow.cancelAutoPipeline);
-  $("generateThemeIdeas")?.addEventListener("click", () => runThemeIdeas());
-  $("rerollThemeIdeas")?.addEventListener("click", () => runThemeIdeas({ reroll: true }));
-  $("generateTheme")?.addEventListener("click", workflow.generateTheme);
-  $("rerollTheme")?.addEventListener("click", () => workflow.generateTheme({ reroll: true }));
-  $("reviseTheme")?.addEventListener("click", workflow.reviseTheme);
-  $("goCopyFromTheme")?.addEventListener("click", () => setActiveTab("copy"));
-  $("generate").addEventListener("click", workflow.generateStory);
-  $("generateCopy").addEventListener("click", workflow.generateCopy);
-  $("buildStoryboard").addEventListener("click", workflow.buildStoryboardFromCopy);
-  $("generateImages").addEventListener("click", workflow.generateImagesParallel);
-  $("redrawSelected").addEventListener("click", () => workflow.redrawSelectedShots(selectedShotIndexes()));
-  $("refreshGallery").addEventListener("click", storyView.renderShotGrid);
-  $("validate").addEventListener("click", () => storyView.validate(els.result, ui.setStatus));
-  $("render").addEventListener("click", workflow.renderVideo);
-  $("previewIntroTemplates")?.addEventListener("click", workflow.previewIntroTemplates);
-  $("uploadBgm")?.addEventListener("click", workflow.uploadBgm);
-  $("uploadIntroSfx")?.addEventListener("click", workflow.uploadIntroSfx);
-  $("closeIntroPreview")?.addEventListener("click", workflow.closeIntroPreviewModal);
-  $("introPreviewBackdrop")?.addEventListener("click", workflow.closeIntroPreviewModal);
-  $("closeImagePreview")?.addEventListener("click", closeImagePreview);
-  $("imagePreviewBackdrop")?.addEventListener("click", closeImagePreview);
-  els.preview?.addEventListener("loadedmetadata", updatePreviewAspect);
-  els.preview?.addEventListener("emptied", updatePreviewAspect);
-  $("sidebarToggle")?.addEventListener("click", () => {
+  on("loadExample", "click", () => {
+    workflow.clearImageJobPollers?.();
+    workflow.loadExample();
+  });
+  on("startAutoPipeline", "click", workflow.startAutoPipeline);
+  on("cancelAutoPipeline", "click", workflow.cancelAutoPipeline);
+  on("generateThemeIdeas", "click", () => runThemeIdeas());
+  on("rerollThemeIdeas", "click", () => runThemeIdeas({ reroll: true }));
+  on("generateTheme", "click", workflow.generateTheme);
+  on("rerollTheme", "click", () => workflow.generateTheme({ reroll: true }));
+  on("reviseTheme", "click", workflow.reviseTheme);
+  on("goCopyFromTheme", "click", () => setActiveTab("copy"));
+  on("generate", "click", workflow.generateStory);
+  on("generateCopy", "click", workflow.generateCopy);
+  on("buildStoryboard", "click", workflow.buildStoryboardFromCopy);
+  on("generateImages", "click", workflow.generateImagesParallel);
+  on("redrawSelected", "click", () => workflow.redrawSelectedShots(selectedShotIndexes()));
+  on("refreshGallery", "click", storyView.renderShotGrid);
+  on("validate", "click", () => storyView.validate(els.result, ui.setStatus));
+  on("render", "click", workflow.renderVideo);
+  on("previewIntroTemplates", "click", workflow.previewIntroTemplates);
+  on("uploadBgm", "click", workflow.uploadBgm);
+  on("uploadIntroSfx", "click", workflow.uploadIntroSfx);
+  on("closeIntroPreview", "click", workflow.closeIntroPreviewModal);
+  on("introPreviewBackdrop", "click", workflow.closeIntroPreviewModal);
+  on("closeImagePreview", "click", closeImagePreview);
+  on("imagePreviewBackdrop", "click", closeImagePreview);
+  on(els.preview, "loadedmetadata", updatePreviewAspect);
+  on(els.preview, "emptied", updatePreviewAspect);
+  on("sidebarToggle", "click", () => {
     setSidebarCollapsed(!document.querySelector(".app-frame")?.classList.contains("sidebar-collapsed"));
   });
-  $("topbarToggle")?.addEventListener("click", () => {
+  on("topbarToggle", "click", () => {
     setTopbarExpanded(!$("projectTopbar")?.classList.contains("is-expanded"));
   });
-  $("toggleImagePrompt")?.addEventListener("click", () => {
+  on("toggleImagePrompt", "click", () => {
     setImagePromptExpanded($("tab-image")?.classList.contains("image-prompt-collapsed"));
   });
-  $("saveProject").addEventListener("click", async () => {
+  on("saveProject", "click", async () => {
     ui.setStatus("保存中", "busy");
     await projectStore.saveNow();
     ui.setStatus("就绪");
   });
-  $("newProject").addEventListener("click", () => {
+  on("newProject", "click", () => {
     workflow.clearThemeIdeas?.();
+    workflow.clearImageJobPollers?.();
     projectStore.createNew();
   });
-  els.projectPicker.addEventListener("change", () => {
+  on(els.projectPicker, "change", () => {
     if (els.projectPicker.value) {
       workflow.clearThemeIdeas?.();
+      workflow.clearImageJobPollers?.();
       projectStore.activate(els.projectPicker.value).then(() => {
         workflow.restoreActiveImageJobs?.();
         workflow.restoreActiveAutoPipelineJobs?.();
@@ -376,33 +419,33 @@ function bindEvents() {
     }
   });
 
-  $("openSettings")?.addEventListener("click", ui.openSettings);
-  $("closeSettings")?.addEventListener("click", ui.closeSettings);
-  $("settingsBackdrop")?.addEventListener("click", ui.closeSettings);
-  $("testTextConnection").addEventListener("click", workflow.testTextConnection);
-  $("testImageConnection").addEventListener("click", workflow.testImageConnection);
-  $("resetCopyPrompt").addEventListener("click", () => {
+  on("openSettings", "click", ui.openSettings);
+  on("closeSettings", "click", ui.closeSettings);
+  on("settingsBackdrop", "click", ui.closeSettings);
+  on("testTextConnection", "click", workflow.testTextConnection);
+  on("testImageConnection", "click", workflow.testImageConnection);
+  on("resetCopyPrompt", "click", () => {
     settings.resetCopyPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
-  $("copyPromptPreset")?.addEventListener("change", () => {
+  on("copyPromptPreset", "change", () => {
     settings.applyCopyPromptPreset(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
-  $("themeCopyPreset")?.addEventListener("change", () => {
+  on("themeCopyPreset", "change", () => {
     settings.applyCopyPromptPreset(storyView.updatePromptMeta, projectStore.scheduleSave, els.themeCopyPreset.value);
   });
-  $("resetCopyToStoryPrompt")?.addEventListener("click", () => {
+  on("resetCopyToStoryPrompt", "click", () => {
     settings.resetCopyToStoryPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
-  $("resetImagePrompt").addEventListener("click", () => {
+  on("resetImagePrompt", "click", () => {
     settings.resetImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
-  els.imageStylePreset?.addEventListener("change", () => {
+  on(els.imageStylePreset, "change", () => {
     settings.applyImageStylePreset(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
-  $("resetImproveImagePrompt")?.addEventListener("click", () => {
+  on("resetImproveImagePrompt", "click", () => {
     settings.resetImproveImagePrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
-  $("resetThemeIdeaPrompt")?.addEventListener("click", () => {
+  on("resetThemeIdeaPrompt", "click", () => {
     settings.resetThemeIdeaPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
 
@@ -411,65 +454,47 @@ function bindEvents() {
     if (editor) closeShotPromptEditor(editor, true);
   });
 
-  els.editor.addEventListener("input", storyView.onEditorInput);
-  els.copyPrompt.addEventListener("input", () => {
-    settings.persist();
-    storyView.updatePromptMeta();
-    projectStore.scheduleSave();
+  on(els.editor, "input", storyView.onEditorInput);
+  on(els.copyPrompt, "input", () => {
+    persistAndSave({ promptMeta: true });
   });
-  els.copyOutput.addEventListener("input", () => {
-    storyView.updatePromptMeta();
-    projectStore.scheduleSave();
+  on(els.copyOutput, "input", () => {
+    promptMetaAndSave();
   });
-  els.copyToStoryPrompt?.addEventListener("input", () => {
-    settings.persist();
-    storyView.updatePromptMeta();
-    projectStore.scheduleSave();
+  on(els.copyToStoryPrompt, "input", () => {
+    persistAndSave({ promptMeta: true });
   });
-  els.imagePrompt.addEventListener("input", () => {
-    settings.persist();
-    storyView.updatePromptMeta();
-    projectStore.scheduleSave();
+  on(els.imagePrompt, "input", () => {
+    persistAndSave({ promptMeta: true });
   });
-  els.improveImagePrompt?.addEventListener("input", () => {
-    settings.persist();
-    storyView.updatePromptMeta();
-    projectStore.scheduleSave();
+  on(els.improveImagePrompt, "input", () => {
+    persistAndSave({ promptMeta: true });
   });
-  els.themeIdeaPrompt?.addEventListener("input", () => {
-    settings.persist();
-    storyView.updatePromptMeta();
-    projectStore.scheduleSave();
+  on(els.themeIdeaPrompt, "input", () => {
+    persistAndSave({ promptMeta: true });
   });
-  els.themeBrief?.addEventListener("input", () => {
-    settings.persist();
-    projectStore.scheduleSave();
+  on(els.themeBrief, "input", () => {
+    persistAndSave();
   });
-  els.themeIntro?.addEventListener("input", () => {
-    syncThemeMirrors();
-    settings.persist();
-    storyView.updatePromptMeta();
-    projectStore.scheduleSave();
+  on(els.themeIntro, "input", () => {
+    persistAndSave({ promptMeta: true, themeMirror: true });
   });
-  els.themeRevision?.addEventListener("input", () => {
-    settings.persist();
-    projectStore.scheduleSave();
+  on(els.themeRevision, "input", () => {
+    persistAndSave();
   });
   for (const id of ["autoBrief", "autoCopyPreset", "autoStoryboardGranularity", "autoImageSize", "autoIntroTemplate", "autoTtsPreset"]) {
-    $(id)?.addEventListener("input", settings.persist);
-    $(id)?.addEventListener("change", settings.persist);
+    onEach([id], "input", settings.persist);
+    onEach([id], "change", settings.persist);
   }
-  els.storyboardGranularity?.addEventListener("change", () => {
-    settings.persist();
-    projectStore.scheduleSave();
+  on(els.storyboardGranularity, "change", () => {
+    persistAndSave();
   });
   for (const id of ["autoOptimizeImagePrompts", "autoInfiniteImageRetry", "autoRenderAfterImages"]) {
-    $(id)?.addEventListener("change", settings.persist);
+    on(id, "change", settings.persist);
   }
-  els.topic.addEventListener("input", () => {
+  on(els.topic, "input", () => {
     syncThemeMirrors();
-    settings.persist();
-    projectStore.scheduleSave();
+    persistAndSave();
   });
 
   for (const id of [
@@ -491,15 +516,15 @@ function bindEvents() {
     "voice",
     "rate",
   ]) {
-    $(id).addEventListener("change", settings.persist);
+    on(id, "change", settings.persist);
   }
-  $("imageSize")?.addEventListener("change", () => {
+  on("imageSize", "change", () => {
     settings.persist();
     storyView.applyImageSize(els.imageSize.value, { scheduleSave: false });
     projectStore.scheduleSave();
   });
   for (const id of ["introTemplate", "introImageSeconds", "bgmSelect", "introSfxSelect"]) {
-    $(id)?.addEventListener("change", () => {
+    on(id, "change", () => {
       settings.persist();
       projectStore.scheduleSave();
       if (id === "introTemplate" && els.introPreviewGrid) {
@@ -509,23 +534,21 @@ function bindEvents() {
       }
     });
   }
-  $("ttsPreset")?.addEventListener("change", () => {
+  on("ttsPreset", "change", () => {
     applyTtsPreset();
-    settings.persist();
-    projectStore.scheduleSave();
+    persistAndSave();
   });
   for (const id of ["apiKey", "imageApiKey"]) {
-    $(id).addEventListener("input", settings.persist);
+    on(id, "input", settings.persist);
   }
-  $("ttsProvider")?.addEventListener("change", () => {
+  on("ttsProvider", "change", () => {
     settings.updateTtsProviderVisibility();
-    settings.persist();
-    projectStore.scheduleSave();
+    persistAndSave();
   });
   for (const id of ["ttsApiKey", "ttsBaseUrl", "ttsGroupId", "ttsVoiceId", "ttsSpeed"]) {
-    $(id)?.addEventListener("input", settings.persist);
+    on(id, "input", settings.persist);
   }
-  $("textProvider").addEventListener("change", () => {
+  on("textProvider", "change", () => {
     settings.applyTextProviderDefaults();
     settings.persist();
   });

@@ -4,6 +4,7 @@ from typing import Any
 
 from .errors import RenderError
 from .job_store import make_job_id, normalize_project_id, public_job, read_job, save_job
+from .job_status import RENDER_ACTIVE_STATUSES, RENDER_JOB_COMPLETE, RENDER_JOB_ERROR, RENDER_JOB_QUEUED, RENDER_JOB_RUNNING, RENDER_TERMINAL_STATUSES
 from .pipeline import render_story
 from .project_service import project_dir, safe_project_id
 from .render_validation import validate_ready_for_render
@@ -37,11 +38,52 @@ def _final_video_result(project_id: str) -> dict[str, Any] | None:
     }
 
 
+def _render_job_base(job_id: str, project_id: str, *, force_render: bool) -> dict[str, Any]:
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "job_id": job_id,
+        "project_id": project_id,
+        "created_ts": _now_ts(),
+        "created_at": stamp,
+        "force_render": force_render,
+    }
+
+
+def _store_render_job(job: dict[str, Any]) -> dict[str, Any]:
+    with _RENDER_JOBS_LOCK:
+        _RENDER_JOBS[str(job["job_id"])] = dict(job)
+        save_job(job)
+        _prune_render_jobs_locked()
+    return public_job(job)
+
+
+def _existing_final_render_job(project_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_render_job_base(make_job_id("render"), project_id, force_render=False),
+        "status": RENDER_JOB_COMPLETE,
+        "progress": 1,
+        "stage": "渲染完成",
+        "detail": "成片已存在",
+        "result": result,
+        "finished_ts": _now_ts(),
+    }
+
+
+def _queued_render_job(project_id: str, *, force_render: bool) -> dict[str, Any]:
+    return {
+        **_render_job_base(make_job_id("render"), project_id, force_render=force_render),
+        "status": RENDER_JOB_QUEUED,
+        "progress": 0,
+        "stage": "排队中",
+        "detail": "等待渲染任务启动",
+    }
+
+
 def _prune_render_jobs_locked() -> None:
     now = _now_ts()
     stale_ids = [
         job_id for job_id, job in _RENDER_JOBS.items()
-        if job.get("status") in {"complete", "error"} and now - float(job.get("finished_ts") or job.get("created_ts") or now) > _RENDER_JOB_TTL_SECONDS
+        if job.get("status") in RENDER_TERMINAL_STATUSES and now - float(job.get("finished_ts") or job.get("created_ts") or now) > _RENDER_JOB_TTL_SECONDS
     ]
     for job_id in stale_ids:
         _RENDER_JOBS.pop(job_id, None)
@@ -52,7 +94,7 @@ def _prune_render_jobs_locked() -> None:
         (
             (float(job.get("finished_ts") or job.get("created_ts") or 0), job_id)
             for job_id, job in _RENDER_JOBS.items()
-            if job.get("status") in {"complete", "error"}
+            if job.get("status") in RENDER_TERMINAL_STATUSES
         ),
         key=lambda item: item[0],
     )
@@ -64,9 +106,8 @@ def _set_render_job(job_id: str, **updates: Any) -> None:
     with _RENDER_JOBS_LOCK:
         job = _RENDER_JOBS.setdefault(job_id, {})
         job.update(updates)
-        if updates.get("status") in {"complete", "error"}:
+        if updates.get("status") in RENDER_TERMINAL_STATUSES:
             job["finished_ts"] = _now_ts()
-        job["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         if job.get("project_id"):
             save_job(job)
         _prune_render_jobs_locked()
@@ -75,10 +116,10 @@ def _set_render_job(job_id: str, **updates: Any) -> None:
 def _render_job_worker(job_id: str, payload: dict[str, Any]) -> None:
     project_id = _project_id_from_payload(payload)
     force_render = bool(payload.get("force_render"))
-    _set_render_job(job_id, project_id=project_id, force_render=force_render, status="running", progress=0.02, stage="准备渲染", detail="渲染任务已启动")
+    _set_render_job(job_id, project_id=project_id, force_render=force_render, status=RENDER_JOB_RUNNING, progress=0.02, stage="准备渲染", detail="渲染任务已启动")
     try:
         def on_progress(event: dict[str, Any]) -> None:
-            _set_render_job(job_id, status="running", **event)
+            _set_render_job(job_id, status=RENDER_JOB_RUNNING, **event)
 
         data = render_story(
             story=payload["story"],
@@ -95,11 +136,11 @@ def _render_job_worker(job_id: str, payload: dict[str, Any]) -> None:
             intro_sfx_id=payload.get("intro_sfx_id") or "default",
             image_size=payload.get("image_size") or "9:16",
         )
-        _set_render_job(job_id, status="complete", progress=1, stage="渲染完成", detail="成片已导出", result=data)
+        _set_render_job(job_id, status=RENDER_JOB_COMPLETE, progress=1, stage="渲染完成", detail="成片已导出", result=data)
     except RenderError as exc:
-        _set_render_job(job_id, status="error", stage="渲染失败", detail=str(exc), error=str(exc))
+        _set_render_job(job_id, status=RENDER_JOB_ERROR, stage="渲染失败", detail=str(exc), error=str(exc))
     except Exception as exc:
-        _set_render_job(job_id, status="error", stage="渲染失败", detail=str(exc), error=str(exc))
+        _set_render_job(job_id, status=RENDER_JOB_ERROR, stage="渲染失败", detail=str(exc), error=str(exc))
 
 
 def create_render_job(payload: dict[str, Any]) -> dict[str, Any]:
@@ -110,44 +151,11 @@ def create_render_job(payload: dict[str, Any]) -> dict[str, Any]:
     force_render = bool(payload.get("force_render"))
     existing = None if force_render else _final_video_result(project_id)
     if existing:
-        job_id = make_job_id("render")
-        complete = {
-            "job_id": job_id,
-            "project_id": project_id,
-            "status": "complete",
-            "progress": 1,
-            "stage": "渲染完成",
-            "detail": "成片已存在",
-            "result": existing,
-            "created_ts": _now_ts(),
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "finished_ts": _now_ts(),
-            "force_render": False,
-        }
-        with _RENDER_JOBS_LOCK:
-            _RENDER_JOBS[job_id] = dict(complete)
-            save_job(complete)
-        return public_job(complete)
+        return _store_render_job(_existing_final_render_job(project_id, existing))
 
-    job_id = make_job_id("render")
-    queued = {
-        "job_id": job_id,
-        "project_id": project_id,
-        "status": "queued",
-        "progress": 0,
-        "stage": "排队中",
-        "detail": "等待渲染任务启动",
-        "created_ts": _now_ts(),
-        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "force_render": force_render,
-    }
-    with _RENDER_JOBS_LOCK:
-        _RENDER_JOBS[job_id] = dict(queued)
-        save_job(queued)
-        _prune_render_jobs_locked()
-    thread = threading.Thread(target=_render_job_worker, args=(job_id, payload), daemon=True)
+    queued = _queued_render_job(project_id, force_render=force_render)
+    _store_render_job(queued)
+    thread = threading.Thread(target=_render_job_worker, args=(queued["job_id"], payload), daemon=True)
     thread.start()
     return public_job(queued)
 
@@ -163,8 +171,8 @@ def get_render_job(job_id: str, project_id: str = "") -> dict[str, Any] | None:
         except FileNotFoundError:
             return None
         result = None if job.get("force_render") else _final_video_result(str(job.get("project_id") or project_id))
-        if result and job.get("status") not in {"complete", "error"}:
-            job.update(status="complete", progress=1, stage="渲染完成", detail="成片已存在", result=result, finished_ts=_now_ts())
+        if result and job.get("status") not in RENDER_TERMINAL_STATUSES:
+            job.update(status=RENDER_JOB_COMPLETE, progress=1, stage="渲染完成", detail="成片已存在", result=result, finished_ts=_now_ts())
             save_job(job)
         return public_job(job)
     return None
