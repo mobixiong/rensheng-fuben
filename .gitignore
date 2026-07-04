@@ -33,3 +33,7 @@ PROJECT_CONTEXT.local.md
 
 .DS_Store
 Thumbs.db
+
+.server.err
+.server.log
+
