@@ -128,6 +128,15 @@ class RenderRequest(BaseModel):
     intro_sfx_id: str = "default"
 
 
+class JianyingDraftRequest(RenderRequest):
+    draft_name: str = ""
+    replace_draft: bool = False
+
+
+class JianyingOpenRequest(BaseModel):
+    draft_dir: str = Field(min_length=1)
+
+
 class TtsPreviewRequest(BaseModel):
     text: str = "今天体验的人生副本，是一次新的开始。"
     voice: str = "zh-CN-YunxiNeural"

@@ -30,6 +30,16 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     }
   }
 
+  function resultJianyingDraftDir(resultText) {
+    try {
+      const data = JSON.parse(resultText || "{}");
+      const draftDir = data.draft_dir || data.source_draft_dir || data?.result?.draft_dir || data?.result?.source_draft_dir || "";
+      return typeof draftDir === "string" ? draftDir : "";
+    } catch {
+      return "";
+    }
+  }
+
   function currentRenderedVideoUrl() {
     return els.preview?.getAttribute("src") || resultVideoUrl(els.result.textContent);
   }
@@ -46,6 +56,11 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     els.preview.src = `${videoUrl}${videoUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
     els.openVideo.href = videoUrl;
     els.openVideo.hidden = false;
+  }
+
+  function applyJianyingDraftAction(resultText) {
+    if (!els.editJianying) return;
+    els.editJianying.hidden = !resultJianyingDraftDir(resultText);
   }
 
   function projectState() {
@@ -227,6 +242,7 @@ export function createProjectStore({ els, ui, api, storyView, state, settings, s
     if (typeof projectStateData.result_text === "string") els.result.textContent = projectStateData.result_text;
     state.referenceAssets?.applyProjectState?.(projectStateData);
     applyRenderedVideo(projectStateData.rendered_video || resultVideoUrl(projectStateData.result_text));
+    applyJianyingDraftAction(projectStateData.result_text);
     const selectedShots = Array.isArray(projectStateData.selected_shots)
       ? projectStateData.selected_shots
       : Number.isInteger(projectStateData.selected_shot)

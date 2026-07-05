@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 
 root = Path.cwd()
@@ -31,14 +31,17 @@ for folder_name in ("static", "prompts", "examples", "assets"):
     add_tree(root / folder_name, folder_name)
 
 hiddenimports = []
-for package_name in ("uvicorn", "edge_tts"):
+for package_name in ("uvicorn", "edge_tts", "pyJianYingDraft", "pymediainfo", "imageio"):
     hiddenimports += collect_submodules(package_name)
+
+datas += collect_data_files("pyJianYingDraft")
+binaries = collect_dynamic_libs("pymediainfo")
 
 
 a = Analysis(
     ["desktop_launcher.py"],
     pathex=[str(root)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

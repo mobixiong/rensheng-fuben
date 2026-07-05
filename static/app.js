@@ -2,9 +2,9 @@ import * as api from "./js/api.js";
 import { $ , createUi } from "./js/ui.js";
 import { createSettings } from "./js/settings.js?v=20260706_tts_preview";
 import { createStoryView } from "./js/story-view.js";
-import { createProjectStore } from "./js/project-store.js?v=20260703_copy_prompt_v10";
+import { createProjectStore } from "./js/project-store.js?v=20260706_jianying_edit";
 import { createReferenceAssets } from "./js/reference-assets.js";
-import { createWorkflow } from "./js/workflow.js?v=20260706_tts_preview";
+import { createWorkflow } from "./js/workflow.js?v=20260706_jianying_edit";
 import { createThemeWorkflow } from "./js/workflow-theme.js?v=20260702_theme_direction_fix";
 
 const ui = createUi();
@@ -380,6 +380,8 @@ function bindEvents() {
   on("refreshGallery", "click", storyView.renderShotGrid);
   on("validate", "click", () => storyView.validate(els.result, ui.setStatus));
   on("render", "click", workflow.renderVideo);
+  on("exportJianying", "click", workflow.exportJianyingDraft);
+  on("editJianying", "click", workflow.editJianyingDraft);
   on("previewIntroTemplates", "click", workflow.previewIntroTemplates);
   on("uploadBgm", "click", workflow.uploadBgm);
   on("uploadIntroSfx", "click", workflow.uploadIntroSfx);

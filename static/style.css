@@ -1892,11 +1892,25 @@ video {
   font-weight: 650;
 }
 
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .text-link {
   color: var(--color-primary);
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
+}
+
+.button-link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 pre {

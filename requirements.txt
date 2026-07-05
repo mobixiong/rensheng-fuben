@@ -5,3 +5,4 @@ edge-tts>=6.1
 pillow>=10.0
 python-dotenv>=1.0
 python-multipart>=0.0.9
+pyJianYingDraft==0.2.7

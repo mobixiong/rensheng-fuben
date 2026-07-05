@@ -547,7 +547,10 @@
                 <h1>成片合成</h1>
                 <p>根据当前分镜、图片、配音配置渲染 MP4</p>
               </div>
-              <button id="render" class="primary-pill" type="button">渲染 MP4</button>
+              <div class="page-actions">
+                <button id="exportJianying" class="secondary-pill" type="button">导出剪映草稿</button>
+                <button id="render" class="primary-pill" type="button">渲染 MP4</button>
+              </div>
             </div>
 
             <details class="render-settings-panel" open>
@@ -629,7 +632,10 @@
               <section class="result-panel">
                 <div class="result-head">
                   <h2>输出</h2>
-                  <a id="openVideo" class="text-link" href="#" target="_blank" hidden>打开视频</a>
+                  <div class="result-actions">
+                    <button id="editJianying" class="text-link button-link" type="button" hidden>在剪映中编辑</button>
+                    <a id="openVideo" class="text-link" href="#" target="_blank" hidden>打开视频</a>
+                  </div>
                 </div>
                 <pre id="result">{}</pre>
               </section>
@@ -870,6 +876,6 @@
         <img id="imagePreviewFull" alt="分镜图片预览" />
       </section>
     </div>
-    <script type="module" src="/static/app.js?v=20260706_tts_preview"></script>
+    <script type="module" src="/static/app.js?v=20260706_jianying_edit"></script>
   </body>
 </html>
