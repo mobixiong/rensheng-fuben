@@ -9,6 +9,10 @@ import {
   DEFAULT_IMAGE_SIZE,
   DEFAULT_INTRO_TEMPLATE,
   DEFAULT_STORYBOARD_GRANULARITY,
+  DOUBAO_TTS_DEFAULT_BASE_URL,
+  DOUBAO_TTS_DEFAULT_MODEL,
+  DOUBAO_TTS_DEFAULT_VOICE_ID,
+  DOUBAO_TTS_MODELS,
   GEMINI_WEB2API_DEFAULT_BASE_URL,
   GEMINI_WEB2API_DEFAULT_MODEL,
   IMAGE_CONCURRENCY_LIMIT,
@@ -18,10 +22,11 @@ import {
   MINIMAX_TTS_DEFAULT_BASE_URL,
   MINIMAX_TTS_DEFAULT_MODEL,
   MINIMAX_TTS_DEFAULT_VOICE_ID,
+  MINIMAX_TTS_MODELS,
   SETTINGS_KEY,
   STORYBOARD_GRANULARITIES,
   THEME_IDEA_PROMPT_VERSION,
-} from "./constants.js?v=20260703_copy_prompt_v10";
+} from "./constants.js?v=20260705_doubao_tts";
 
 const SECRET_SETTINGS_KEY = `${SETTINGS_KEY}-session-secrets`;
 const IMAGE_STYLE_PRESET_KEYS = ["short_video", "realistic", "cinematic", "anime"];
@@ -180,24 +185,70 @@ export function createSettings({ els }) {
     }
   }
 
+  function optionExists(select, value) {
+    return Array.from(select?.options || []).some((option) => option.value === value);
+  }
+
+  function setSelectOptions(select, options, fallbackValue, preferredValue = "") {
+    if (!select) return;
+    const current = preferredValue || select.value;
+    select.replaceChildren(...options.map((item) => {
+      const option = document.createElement("option");
+      if (typeof item === "string") {
+        option.value = item;
+        option.textContent = item;
+      } else {
+        option.value = item.value;
+        option.textContent = item.label || item.value;
+      }
+      return option;
+    }));
+    select.value = optionExists(select, current) ? current : fallbackValue;
+  }
+
+  function syncTtsModelOptions(preferredValue = "") {
+    if (!els.ttsModel) return;
+    if (els.ttsProvider?.value === "doubao") {
+      setSelectOptions(els.ttsModel, DOUBAO_TTS_MODELS, DOUBAO_TTS_DEFAULT_MODEL, preferredValue);
+      return;
+    }
+    setSelectOptions(els.ttsModel, MINIMAX_TTS_MODELS, MINIMAX_TTS_DEFAULT_MODEL, preferredValue);
+  }
+
+  function replaceIfBlankOrKnown(input, value, knownValues = []) {
+    if (!input) return;
+    const current = input.value.trim();
+    if (!current || knownValues.includes(current)) input.value = value;
+  }
+
   function applyTtsProviderDefaults() {
-    if (!els.ttsProvider || els.ttsProvider.value !== "minimax") return;
-    if (els.ttsBaseUrl && !els.ttsBaseUrl.value.trim()) els.ttsBaseUrl.value = MINIMAX_TTS_DEFAULT_BASE_URL;
-    if (els.ttsModel && !els.ttsModel.value.trim()) els.ttsModel.value = MINIMAX_TTS_DEFAULT_MODEL;
-    if (els.ttsVoiceId && !els.ttsVoiceId.value.trim()) els.ttsVoiceId.value = MINIMAX_TTS_DEFAULT_VOICE_ID;
+    if (!els.ttsProvider || els.ttsProvider.value === "edge") return;
+    syncTtsModelOptions();
+    if (els.ttsProvider.value === "doubao") {
+      replaceIfBlankOrKnown(els.ttsBaseUrl, DOUBAO_TTS_DEFAULT_BASE_URL, [MINIMAX_TTS_DEFAULT_BASE_URL]);
+      replaceIfBlankOrKnown(els.ttsVoiceId, DOUBAO_TTS_DEFAULT_VOICE_ID, [MINIMAX_TTS_DEFAULT_VOICE_ID]);
+      if (els.ttsModel && !optionExists(els.ttsModel, els.ttsModel.value)) els.ttsModel.value = DOUBAO_TTS_DEFAULT_MODEL;
+      if (els.ttsSpeed && !els.ttsSpeed.value.trim()) els.ttsSpeed.value = "1.0";
+      return;
+    }
+    replaceIfBlankOrKnown(els.ttsBaseUrl, MINIMAX_TTS_DEFAULT_BASE_URL, [DOUBAO_TTS_DEFAULT_BASE_URL]);
+    replaceIfBlankOrKnown(els.ttsVoiceId, MINIMAX_TTS_DEFAULT_VOICE_ID, [DOUBAO_TTS_DEFAULT_VOICE_ID]);
+    if (els.ttsModel && !optionExists(els.ttsModel, els.ttsModel.value)) els.ttsModel.value = MINIMAX_TTS_DEFAULT_MODEL;
     if (els.ttsSpeed && !els.ttsSpeed.value.trim()) els.ttsSpeed.value = "1.0";
     if (els.ttsLanguageBoost && !els.ttsLanguageBoost.value.trim()) els.ttsLanguageBoost.value = "Chinese";
   }
 
   function updateTtsProviderVisibility() {
-    const isMiniMax = els.ttsProvider?.value === "minimax";
-    document.querySelectorAll(".tts-minimax-field").forEach((node) => {
-      node.hidden = !isMiniMax;
+    const provider = els.ttsProvider?.value || "edge";
+    syncTtsModelOptions();
+    document.querySelectorAll(".tts-provider-field").forEach((node) => {
+      const providers = String(node.dataset.ttsProviders || "").split(/\s+/).filter(Boolean);
+      node.hidden = !providers.includes(provider);
     });
     const voiceField = els.voice?.closest(".field");
     const rateField = els.rate?.closest(".field");
-    if (voiceField) voiceField.hidden = isMiniMax;
-    if (rateField) rateField.hidden = isMiniMax;
+    if (voiceField) voiceField.hidden = provider !== "edge";
+    if (rateField) rateField.hidden = provider !== "edge";
     applyTtsProviderDefaults();
   }
 
@@ -314,12 +365,13 @@ export function createSettings({ els }) {
       if (els.introSfxSelect && s.introSfxSelect && Array.from(els.introSfxSelect.options).some((option) => option.value === s.introSfxSelect)) {
         els.introSfxSelect.value = s.introSfxSelect;
       }
-      if (els.ttsProvider) els.ttsProvider.value = ["edge", "minimax"].includes(s.ttsProvider) ? s.ttsProvider : "edge";
-      if (els.ttsBaseUrl) els.ttsBaseUrl.value = s.ttsBaseUrl || MINIMAX_TTS_DEFAULT_BASE_URL;
+      if (els.ttsProvider) els.ttsProvider.value = ["edge", "minimax", "doubao", "volcengine"].includes(s.ttsProvider) ? (s.ttsProvider === "volcengine" ? "doubao" : s.ttsProvider) : "edge";
+      syncTtsModelOptions(s.ttsModel || "");
+      if (els.ttsBaseUrl) els.ttsBaseUrl.value = s.ttsBaseUrl || (els.ttsProvider?.value === "doubao" ? DOUBAO_TTS_DEFAULT_BASE_URL : MINIMAX_TTS_DEFAULT_BASE_URL);
       if (els.ttsApiKey) els.ttsApiKey.value = secrets.ttsApiKey || s.ttsApiKey || "";
       if (els.ttsGroupId) els.ttsGroupId.value = s.ttsGroupId || "";
-      if (els.ttsModel) els.ttsModel.value = s.ttsModel || MINIMAX_TTS_DEFAULT_MODEL;
-      if (els.ttsVoiceId) els.ttsVoiceId.value = s.ttsVoiceId || MINIMAX_TTS_DEFAULT_VOICE_ID;
+      if (els.ttsModel) els.ttsModel.value = optionExists(els.ttsModel, s.ttsModel) ? s.ttsModel : (els.ttsProvider?.value === "doubao" ? DOUBAO_TTS_DEFAULT_MODEL : MINIMAX_TTS_DEFAULT_MODEL);
+      if (els.ttsVoiceId) els.ttsVoiceId.value = s.ttsVoiceId || (els.ttsProvider?.value === "doubao" ? DOUBAO_TTS_DEFAULT_VOICE_ID : MINIMAX_TTS_DEFAULT_VOICE_ID);
       if (els.ttsSpeed) els.ttsSpeed.value = s.ttsSpeed || "1.0";
       if (els.ttsEmotion) els.ttsEmotion.value = s.ttsEmotion || "";
       if (els.ttsLanguageBoost) els.ttsLanguageBoost.value = s.ttsLanguageBoost || "Chinese";
@@ -584,6 +636,52 @@ export function createSettings({ els }) {
     };
   }
 
+  function ttsConfigPayload() {
+    const provider = els.ttsProvider?.value || "edge";
+    if (provider === "edge") {
+      return {
+        provider,
+        base_url: "",
+        api_key: "",
+        group_id: "",
+        model: "",
+        voice_id: "",
+        speed: 1,
+        emotion: "",
+        language_boost: "",
+      };
+    }
+    return {
+      provider,
+      base_url: els.ttsBaseUrl?.value.trim() || "",
+      api_key: els.ttsApiKey?.value.trim() || "",
+      group_id: els.ttsGroupId?.value.trim() || "",
+      model: els.ttsModel?.value.trim() || "",
+      voice_id: els.ttsVoiceId?.value.trim() || "",
+      speed: Number.parseFloat(els.ttsSpeed?.value || "1") || 1,
+      emotion: els.ttsEmotion?.value || "",
+      language_boost: els.ttsLanguageBoost?.value || "",
+    };
+  }
+
+  function ttsPreviewPayload() {
+    const config = ttsConfigPayload();
+    return {
+      text: "今天体验的人生副本，是一次新的开始。",
+      voice: els.voice?.value || "zh-CN-YunxiNeural",
+      rate: els.rate?.value || "+12%",
+      tts_provider: config.provider,
+      tts_base_url: config.base_url,
+      tts_api_key: config.api_key,
+      tts_group_id: config.group_id,
+      tts_model: config.model,
+      tts_voice_id: config.voice_id,
+      tts_speed: config.speed,
+      tts_emotion: config.emotion,
+      tts_language_boost: config.language_boost,
+    };
+  }
+
   function improveImagePromptPayload(story, shotIndex) {
     return {
       story,
@@ -599,7 +697,8 @@ export function createSettings({ els }) {
 
   function autoPipelinePayload() {
     const ttsOption = els.autoTtsPreset?.selectedOptions?.[0];
-    const useMinimax = els.ttsProvider?.value === "minimax" && els.autoTtsPreset?.value === "custom";
+    const useConfiguredTts = els.autoTtsPreset?.value === "custom";
+    const configuredTts = ttsConfigPayload();
     return {
       project_id: "",
       brief: els.autoBrief?.value.trim() || "",
@@ -613,6 +712,9 @@ export function createSettings({ els }) {
       tts_preset: els.autoTtsPreset?.value || els.ttsPreset?.value || "custom",
       voice: ttsOption?.dataset?.voice || els.voice?.value || "zh-CN-YunxiNeural",
       rate: ttsOption?.dataset?.rate || els.rate?.value || "+12%",
+      tts_speed: useConfiguredTts ? configuredTts.speed : 1,
+      tts_emotion: useConfiguredTts ? configuredTts.emotion : "",
+      tts_language_boost: useConfiguredTts ? configuredTts.language_boost : "Chinese",
       bgm_id: els.bgmSelect?.value || "none",
       intro_sfx_id: els.introSfxSelect?.value || "default",
       auto_optimize_image_prompts: els.autoOptimizeImagePrompts?.checked !== false,
@@ -637,12 +739,12 @@ export function createSettings({ els }) {
         api_key: els.imageApiKey.value.trim(),
       },
       tts_config: {
-        provider: useMinimax ? "minimax" : "edge",
-        base_url: els.ttsBaseUrl?.value.trim() || "",
-        api_key: els.ttsApiKey?.value.trim() || "",
-        group_id: els.ttsGroupId?.value.trim() || "",
-        model: els.ttsModel?.value.trim() || "",
-        voice_id: els.ttsVoiceId?.value.trim() || "",
+        provider: useConfiguredTts ? configuredTts.provider : "edge",
+        base_url: useConfiguredTts ? configuredTts.base_url : "",
+        api_key: useConfiguredTts ? configuredTts.api_key : "",
+        group_id: useConfiguredTts ? configuredTts.group_id : "",
+        model: useConfiguredTts ? configuredTts.model : "",
+        voice_id: useConfiguredTts ? configuredTts.voice_id : "",
       },
     };
   }
@@ -669,6 +771,7 @@ export function createSettings({ els }) {
     copyToStoryPayload,
     imageConnectionPayload,
     imagePayload,
+    ttsPreviewPayload,
     improveImagePromptPayload,
     autoPipelinePayload,
     applyTtsProviderDefaults,

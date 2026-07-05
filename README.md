@@ -26,7 +26,7 @@
 - 仅用主题生成分镜：默认读取 `prompts/story_shots.md`
 - 图片批量生成和单张重抽
 - 图片失败自动重试，并在分镜卡片显示生成中、重试中、失败状态
-- TTS 配音：Edge TTS / MiniMax T2A HTTP
+- TTS 配音：Edge TTS / MiniMax T2A HTTP / 豆包语音（火山引擎）
 - BGM 与开头音效：内置本地素材选择，支持上传自定义音频到 `workspace/`
 - 开头模板：翻页快切、展开快切、横向/纵向羽化快闪、阶梯遮罩接力，模板预览使用固定静态 MP4
 - SRT/ASS 字幕
@@ -360,6 +360,17 @@ Group ID：新接口通常留空，旧网关需要时再填
 ```
 
 MiniMax 使用官方同步语音合成接口 `POST /v1/t2a_v2`，工作台请求非流式 `hex` 音频并写入本地 MP3，再进入后续视频合成流程。
+
+需要使用豆包语音/火山引擎时，在设置页选择 `豆包语音 / 火山 TTS` 并填写：
+
+```text
+接口地址：https://openspeech.bytedance.com/api/v3/tts/unidirectional
+API Key：当前用户自己的火山引擎豆包语音 API Key
+模型 / Resource ID：seed-tts-2.0、seed-tts-1.0、seed-icl-2.0 等
+音色 ID：火山音色列表或声音复刻得到的 speaker ID
+```
+
+豆包语音使用 V3 HTTP Chunked 单向流式接口。工作台会读取返回 JSON 中的 base64 音频片段，拼接写入本地 MP3。设置页的“试听配音”会用当前配置生成一段短音频预览。
 
 ## 音频素材
 

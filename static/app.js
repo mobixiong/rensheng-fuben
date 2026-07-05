@@ -1,10 +1,10 @@
 import * as api from "./js/api.js";
 import { $ , createUi } from "./js/ui.js";
-import { createSettings } from "./js/settings.js?v=20260703_copy_prompt_v10";
+import { createSettings } from "./js/settings.js?v=20260706_tts_preview";
 import { createStoryView } from "./js/story-view.js";
 import { createProjectStore } from "./js/project-store.js?v=20260703_copy_prompt_v10";
 import { createReferenceAssets } from "./js/reference-assets.js";
-import { createWorkflow } from "./js/workflow.js?v=20260703_intro_preview_ratio";
+import { createWorkflow } from "./js/workflow.js?v=20260706_tts_preview";
 import { createThemeWorkflow } from "./js/workflow-theme.js?v=20260702_theme_direction_fix";
 
 const ui = createUi();
@@ -182,7 +182,7 @@ function openShotPromptEditor(promptNode) {
 }
 
 function applyTtsPreset() {
-  if (els.ttsProvider?.value === "minimax") return;
+  if (els.ttsProvider?.value !== "edge") return;
   const option = els.ttsPreset?.selectedOptions?.[0];
   if (!option?.dataset?.voice || !option?.dataset?.rate) return;
   els.voice.value = option.dataset.voice;
@@ -424,6 +424,7 @@ function bindEvents() {
   on("settingsBackdrop", "click", ui.closeSettings);
   on("testTextConnection", "click", workflow.testTextConnection);
   on("testImageConnection", "click", workflow.testImageConnection);
+  on("previewTts", "click", workflow.previewTts);
   on("resetCopyPrompt", "click", () => {
     settings.resetCopyPrompt(storyView.updatePromptMeta, projectStore.scheduleSave);
   });
@@ -545,7 +546,7 @@ function bindEvents() {
     settings.updateTtsProviderVisibility();
     persistAndSave();
   });
-  for (const id of ["ttsApiKey", "ttsBaseUrl", "ttsGroupId", "ttsVoiceId", "ttsSpeed"]) {
+  for (const id of ["ttsApiKey", "ttsBaseUrl", "ttsGroupId", "ttsModel", "ttsVoiceId", "ttsSpeed", "ttsEmotion", "ttsLanguageBoost"]) {
     on(id, "input", settings.persist);
   }
   on("textProvider", "change", () => {

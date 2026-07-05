@@ -128,6 +128,23 @@ class RenderRequest(BaseModel):
     intro_sfx_id: str = "default"
 
 
+class TtsPreviewRequest(BaseModel):
+    text: str = "今天体验的人生副本，是一次新的开始。"
+    voice: str = "zh-CN-YunxiNeural"
+    rate: str = "+12%"
+    tts_provider: str = ""
+    tts_base_url: str = ""
+    tts_api_key: str = ""
+    tts_group_id: str = ""
+    tts_model: str = "speech-2.8-hd"
+    tts_voice_id: str = "male-qn-qingse"
+    tts_speed: float = 1.0
+    tts_volume: float = 1.0
+    tts_pitch: int = 0
+    tts_emotion: str = ""
+    tts_language_boost: str = "Chinese"
+
+
 class IntroPreviewRequest(BaseModel):
     story: dict[str, Any]
     project_id: str | None = None
@@ -149,6 +166,9 @@ class AutoPipelineRequest(BaseModel):
     tts_preset: str = "custom"
     voice: str = "zh-CN-YunxiNeural"
     rate: str = "+12%"
+    tts_speed: float = 1.0
+    tts_emotion: str = ""
+    tts_language_boost: str = "Chinese"
     bgm_id: str = "none"
     intro_sfx_id: str = "default"
     auto_optimize_image_prompts: bool = True

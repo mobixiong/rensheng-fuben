@@ -748,6 +748,10 @@
             <section class="settings-panel">
               <div class="settings-title-row">
                 <h2>配音参数</h2>
+                <div class="settings-test-row">
+                  <button id="previewTts" class="secondary-pill" type="button">试听配音</button>
+                  <span id="ttsPreviewResult" class="test-result">未试听</span>
+                </div>
               </div>
               <div class="settings-form">
                 <label class="field">
@@ -755,22 +759,23 @@
                   <select id="ttsProvider">
                     <option value="edge">Edge TTS</option>
                     <option value="minimax">MiniMax T2A HTTP</option>
+                    <option value="doubao">豆包语音 / 火山 TTS</option>
                   </select>
                 </label>
-                <label class="field tts-minimax-field">
-                  <span>MiniMax 接口地址</span>
-                  <input id="ttsBaseUrl" placeholder="https://api.minimaxi.com/v1/t2a_v2" />
+                <label class="field tts-provider-field" data-tts-providers="minimax doubao">
+                  <span>接口地址</span>
+                  <input id="ttsBaseUrl" placeholder="https://openspeech.bytedance.com/api/v3/tts/unidirectional" />
                 </label>
-                <label class="field tts-minimax-field">
-                  <span>MiniMax API Key</span>
-                  <input id="ttsApiKey" type="password" placeholder="Bearer API_key" />
+                <label class="field tts-provider-field" data-tts-providers="minimax doubao">
+                  <span>API Key</span>
+                  <input id="ttsApiKey" type="password" placeholder="当前用户自己的 TTS API Key" />
                 </label>
-                <label class="field tts-minimax-field">
+                <label class="field tts-provider-field" data-tts-providers="minimax">
                   <span>Group ID（可选）</span>
                   <input id="ttsGroupId" placeholder="新接口通常留空" />
                 </label>
-                <label class="field tts-minimax-field">
-                  <span>MiniMax 模型</span>
+                <label class="field tts-provider-field" data-tts-providers="minimax doubao">
+                  <span>模型 / Resource ID</span>
                   <select id="ttsModel">
                     <option value="speech-2.8-hd">speech-2.8-hd</option>
                     <option value="speech-2.8-turbo">speech-2.8-turbo</option>
@@ -782,16 +787,16 @@
                     <option value="speech-01-turbo">speech-01-turbo</option>
                   </select>
                 </label>
-                <label class="field tts-minimax-field">
-                  <span>MiniMax 音色 ID</span>
-                  <input id="ttsVoiceId" placeholder="male-qn-qingse" />
+                <label class="field tts-provider-field" data-tts-providers="minimax doubao">
+                  <span>音色/说话人 ID</span>
+                  <input id="ttsVoiceId" placeholder="豆包例：zh_female_shuangkuaisisi_moon_bigtts" />
                 </label>
-                <label class="field tts-minimax-field">
-                  <span>MiniMax 语速</span>
+                <label class="field tts-provider-field" data-tts-providers="minimax doubao">
+                  <span>语速</span>
                   <input id="ttsSpeed" type="number" min="0.5" max="2" step="0.1" placeholder="1.0" />
                 </label>
-                <label class="field tts-minimax-field">
-                  <span>MiniMax 情绪</span>
+                <label class="field tts-provider-field" data-tts-providers="minimax doubao">
+                  <span>情绪</span>
                   <select id="ttsEmotion">
                     <option value="">自动</option>
                     <option value="happy">happy</option>
@@ -805,7 +810,7 @@
                     <option value="whisper">whisper</option>
                   </select>
                 </label>
-                <label class="field tts-minimax-field">
+                <label class="field tts-provider-field" data-tts-providers="minimax">
                   <span>语言增强</span>
                   <select id="ttsLanguageBoost">
                     <option value="Chinese">Chinese</option>
@@ -814,6 +819,10 @@
                     <option value="auto">auto</option>
                     <option value="">不设置</option>
                   </select>
+                </label>
+                <label class="field full-field tts-provider-field" data-tts-providers="edge minimax doubao">
+                  <span>试听音频</span>
+                  <audio id="ttsPreviewAudio" controls hidden></audio>
                 </label>
                 <label class="field">
                   <span>语音角色</span>
@@ -861,6 +870,6 @@
         <img id="imagePreviewFull" alt="分镜图片预览" />
       </section>
     </div>
-    <script type="module" src="/static/app.js?v=20260703_copy_prompt_v10"></script>
+    <script type="module" src="/static/app.js?v=20260706_tts_preview"></script>
   </body>
 </html>

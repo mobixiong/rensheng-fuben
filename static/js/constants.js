@@ -4,6 +4,27 @@ export const GEMINI_WEB2API_DEFAULT_MODEL = "gemini-3.5-flash-thinking";
 export const MINIMAX_TTS_DEFAULT_BASE_URL = "https://api.minimaxi.com/v1/t2a_v2";
 export const MINIMAX_TTS_DEFAULT_MODEL = "speech-2.8-hd";
 export const MINIMAX_TTS_DEFAULT_VOICE_ID = "male-qn-qingse";
+export const MINIMAX_TTS_MODELS = [
+  "speech-2.8-hd",
+  "speech-2.8-turbo",
+  "speech-2.6-hd",
+  "speech-2.6-turbo",
+  "speech-02-hd",
+  "speech-02-turbo",
+  "speech-01-hd",
+  "speech-01-turbo",
+];
+export const DOUBAO_TTS_DEFAULT_BASE_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
+export const DOUBAO_TTS_DEFAULT_MODEL = "seed-tts-2.0";
+export const DOUBAO_TTS_DEFAULT_VOICE_ID = "zh_female_shuangkuaisisi_moon_bigtts";
+export const DOUBAO_TTS_MODELS = [
+  { value: "seed-tts-2.0", label: "seed-tts-2.0（语音合成 2.0）" },
+  { value: "seed-tts-1.0", label: "seed-tts-1.0（语音合成 1.0 字符版）" },
+  { value: "seed-tts-1.0-concurr", label: "seed-tts-1.0-concurr（语音合成 1.0 并发版）" },
+  { value: "seed-icl-2.0", label: "seed-icl-2.0（声音复刻 2.0）" },
+  { value: "seed-icl-1.0", label: "seed-icl-1.0（声音复刻 1.0 字符版）" },
+  { value: "seed-icl-1.0-concurr", label: "seed-icl-1.0-concurr（声音复刻 1.0 并发版）" },
+];
 export const PROJECT_SAVE_DELAY_MS = 1600;
 export const PROJECT_PROGRESS_SAVE_INTERVAL_MS = 2000;
 export const IMAGE_RETRY_LIMIT = 2;

@@ -103,6 +103,8 @@ export function createUi() {
     ttsSpeed: $("ttsSpeed"),
     ttsEmotion: $("ttsEmotion"),
     ttsLanguageBoost: $("ttsLanguageBoost"),
+    ttsPreviewResult: $("ttsPreviewResult"),
+    ttsPreviewAudio: $("ttsPreviewAudio"),
     voice: $("voice"),
     rate: $("rate"),
   };
@@ -173,6 +175,7 @@ export function createUi() {
       "ttsSpeed",
       "ttsEmotion",
       "ttsLanguageBoost",
+      "previewTts",
     ]) {
       const el = $(id);
       if (el) el.disabled = busy;

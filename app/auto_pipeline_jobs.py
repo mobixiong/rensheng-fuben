@@ -914,17 +914,20 @@ def _run_cover(job: dict[str, Any]) -> dict[str, Any]:
 def _render_payload(job: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     input_data = job.get("input") or {}
     tts_config = _with_runtime_keys(job, "tts_config")
+    tts_provider = tts_config.get("provider") or input_data.get("tts_provider") or "edge"
+    default_tts_model = "seed-tts-2.0" if tts_provider == "doubao" else "speech-2.8-hd"
+    default_tts_voice_id = "zh_female_shuangkuaisisi_moon_bigtts" if tts_provider == "doubao" else "male-qn-qingse"
     return {
         "story": state.get("story") or {},
         "voice": input_data.get("voice") or "zh-CN-YunxiNeural",
         "rate": input_data.get("rate") or "+12%",
         "tts_preset": input_data.get("tts_preset") or "custom",
-        "tts_provider": tts_config.get("provider") or input_data.get("tts_provider") or "edge",
+        "tts_provider": tts_provider,
         "tts_base_url": tts_config.get("base_url") or "",
         "tts_api_key": tts_config.get("api_key") or "",
         "tts_group_id": tts_config.get("group_id") or "",
-        "tts_model": tts_config.get("model") or "speech-2.8-hd",
-        "tts_voice_id": tts_config.get("voice_id") or input_data.get("tts_voice_id") or "male-qn-qingse",
+        "tts_model": tts_config.get("model") or default_tts_model,
+        "tts_voice_id": tts_config.get("voice_id") or input_data.get("tts_voice_id") or default_tts_voice_id,
         "tts_speed": input_data.get("tts_speed") or 1,
         "tts_emotion": input_data.get("tts_emotion") or "",
         "tts_language_boost": input_data.get("tts_language_boost") or "Chinese",
@@ -1078,6 +1081,9 @@ def create_auto_pipeline_job(payload: dict[str, Any]) -> dict[str, Any]:
         "tts_preset": payload.get("tts_preset") or "custom",
         "voice": payload.get("voice") or "zh-CN-YunxiNeural",
         "rate": payload.get("rate") or "+12%",
+        "tts_speed": payload.get("tts_speed") or 1,
+        "tts_emotion": payload.get("tts_emotion") or "",
+        "tts_language_boost": payload.get("tts_language_boost") or "Chinese",
         "bgm_id": payload.get("bgm_id") or "none",
         "intro_sfx_id": payload.get("intro_sfx_id") or "default",
         "auto_optimize_image_prompts": payload.get("auto_optimize_image_prompts", True),

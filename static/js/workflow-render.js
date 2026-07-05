@@ -49,17 +49,17 @@ export function createRenderWorkflow({ els, ui, api, settings, storyView, projec
   }
 
   function renderVoiceConfig() {
-    if (els.ttsProvider?.value === "minimax") {
+    if (els.ttsProvider?.value === "minimax" || els.ttsProvider?.value === "doubao") {
       return {
         voice: els.voice?.value || "zh-CN-YunxiNeural",
         rate: els.rate?.value || "+12%",
-        ttsPreset: "minimax",
-        ttsProvider: "minimax",
+        ttsPreset: els.ttsProvider.value,
+        ttsProvider: els.ttsProvider.value,
         ttsBaseUrl: els.ttsBaseUrl?.value.trim() || "",
         ttsApiKey: els.ttsApiKey?.value.trim() || "",
         ttsGroupId: els.ttsGroupId?.value.trim() || "",
-        ttsModel: els.ttsModel?.value.trim() || "speech-2.8-hd",
-        ttsVoiceId: els.ttsVoiceId?.value.trim() || "male-qn-qingse",
+        ttsModel: els.ttsModel?.value.trim() || "",
+        ttsVoiceId: els.ttsVoiceId?.value.trim() || "",
         ttsSpeed: Number.parseFloat(els.ttsSpeed?.value || "1") || 1,
         ttsEmotion: els.ttsEmotion?.value || "",
         ttsLanguageBoost: els.ttsLanguageBoost?.value || "Chinese",
