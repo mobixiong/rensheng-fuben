@@ -13,6 +13,9 @@ from .paths import PROJECTS_DIR, ROOT, WORKSPACE
 
 
 IMAGE_PROMPT_PATH = ROOT / "prompts" / "image_style.md"
+DEFAULT_LLM_BASE_URL = "http://43.131.249.187:3000/v1"
+DEFAULT_IMAGE_MODEL = "gpt-image-2"
+MISSING_API_KEY_MESSAGE = "密钥未填写，密钥是群号"
 
 
 class ImageError(RuntimeError):
@@ -126,9 +129,9 @@ class ImageConfig:
     def from_payload(cls, payload: dict[str, Any]) -> "ImageConfig":
         return cls(
             provider=(payload.get("provider") or os.getenv("IMAGE_PROVIDER") or "openai").strip(),
-            base_url=(payload.get("base_url") or os.getenv("IMAGE_BASE_URL") or "").strip(),
+            base_url=(payload.get("base_url") or os.getenv("IMAGE_BASE_URL") or DEFAULT_LLM_BASE_URL).strip(),
             api_key=(payload.get("api_key") or os.getenv("IMAGE_API_KEY") or "").strip(),
-            model=(payload.get("model") or os.getenv("IMAGE_MODEL") or "").strip(),
+            model=(payload.get("model") or os.getenv("IMAGE_MODEL") or DEFAULT_IMAGE_MODEL).strip(),
             size=(payload.get("size") or os.getenv("IMAGE_SIZE") or "9:16").strip(),
         )
 
@@ -234,8 +237,14 @@ def _download(url: str, out_path: Path) -> None:
 
 
 def _openai_image_response(prompt: str, cfg: ImageConfig, timeout: int = 180) -> dict[str, Any]:
-    if not cfg.base_url or not cfg.api_key or not cfg.model:
-        raise ImageError("Image base_url/api_key/model is required")
+    if not cfg.api_key:
+        raise ImageError(
+            MISSING_API_KEY_MESSAGE,
+            code="missing_api_key",
+            category="auth",
+        )
+    if not cfg.base_url or not cfg.model:
+        raise ImageError("Image base_url/model is required", code="missing_config", category="config")
     body = {
         "model": cfg.model,
         "prompt": prompt,

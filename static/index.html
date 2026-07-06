@@ -661,7 +661,7 @@
               <div class="settings-form">
                 <label class="field">
                   <span>接口地址</span>
-                  <input id="baseUrl" placeholder="http://127.0.0.1:8081/v1" />
+                  <input id="baseUrl" placeholder="http://43.131.249.187:3000/v1" />
                 </label>
                 <label class="field">
                   <span>接口类型</span>
@@ -672,11 +672,11 @@
                 </label>
                 <label class="field">
                   <span>模型</span>
-                  <input id="model" placeholder="gemini-3.5-flash-thinking" />
+                  <input id="model" placeholder="gpt-5.5" />
                 </label>
                 <label class="field">
                   <span>密钥</span>
-                  <input id="apiKey" type="password" placeholder="sk-..." />
+                  <input id="apiKey" type="password" placeholder="密钥是群号" />
                 </label>
               </div>
             </section>
@@ -692,7 +692,7 @@
               <div class="settings-form">
                 <label class="field">
                   <span>接口地址</span>
-                  <input id="imageBaseUrl" placeholder="https://api.example.com" />
+                  <input id="imageBaseUrl" placeholder="http://43.131.249.187:3000/v1" />
                 </label>
                 <label class="field">
                   <span>接口类型</span>
@@ -702,11 +702,11 @@
                 </label>
                 <label class="field">
                   <span>模型</span>
-                  <input id="imageModel" placeholder="image-model-name" />
+                  <input id="imageModel" placeholder="gpt-image-2" />
                 </label>
                 <label class="field">
                   <span>密钥</span>
-                  <input id="imageApiKey" type="password" placeholder="sk-..." />
+                  <input id="imageApiKey" type="password" placeholder="密钥是群号" />
                 </label>
                 <label class="field">
                   <span>图片尺寸</span>
@@ -795,7 +795,9 @@
                 </label>
                 <label class="field tts-provider-field" data-tts-providers="minimax doubao">
                   <span>音色/说话人 ID</span>
-                  <input id="ttsVoiceId" placeholder="豆包例：zh_female_shuangkuaisisi_moon_bigtts" />
+                  <select id="ttsVoiceId">
+                    <option value="zh_male_beijingxiaoye_emo_v2_mars_bigtts">北京小爷（多情感） | zh_male_beijingxiaoye_emo_v2_mars_bigtts</option>
+                  </select>
                 </label>
                 <label class="field tts-provider-field" data-tts-providers="minimax doubao">
                   <span>语速</span>
@@ -876,6 +878,6 @@
         <img id="imagePreviewFull" alt="分镜图片预览" />
       </section>
     </div>
-    <script type="module" src="/static/app.js?v=20260706_jianying_edit"></script>
+    <script type="module" src="/static/app.js?v=20260706_doubao_voice_select"></script>
   </body>
 </html>

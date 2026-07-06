@@ -197,6 +197,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     ui.setStatus(statusText, "busy");
     clearTimeout(state.saveTimer);
     try {
+      settings.requireImageApiKey();
       await projectStore.ensureSaved({ applyState: false, refreshProjects: false });
       let story = withCurrentImageSize(storyView.read());
       const shots = story.shots || [];
@@ -296,6 +297,7 @@ export function createImageWorkflow({ els, ui, api, settings, storyView, project
     await projectStore.queueProgressSave({ applyState: false, refreshProjects: false });
     ui.setStatus("优化提示词", "busy");
     try {
+      settings.requireTextApiKey();
       const story = storyView.read();
       const data = await api.postJson("/api/text/improve-image-prompt", settings.improveImagePromptPayload(story, shotIndex));
       const nextPrompt = String(data.image_prompt || "").trim();

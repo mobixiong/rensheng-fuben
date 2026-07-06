@@ -4,6 +4,7 @@ export function createCopyWorkflow({ els, ui, api, settings, storyView, projectS
     ui.setBusy(true);
     ui.setStatus("生成中", "busy");
     try {
+      settings.requireTextApiKey();
       const data = withCurrentImageSize(await api.postJson("/api/text/generate", settings.storyPayload()));
       storyView.write(data);
       els.result.textContent = JSON.stringify({ "分镜生成": "完成", "镜头数": data.shots?.length || 0 }, null, 2);
@@ -23,6 +24,7 @@ export function createCopyWorkflow({ els, ui, api, settings, storyView, projectS
     ui.setBusy(true);
     ui.setStatus("写口播", "busy");
     try {
+      settings.requireTextApiKey();
       const data = await api.postJson("/api/text/generate-copy", settings.textPayload());
       els.copyOutput.value = data.text || "";
       storyView.updatePromptMeta();
@@ -52,6 +54,7 @@ export function createCopyWorkflow({ els, ui, api, settings, storyView, projectS
     ui.setBusy(true);
     ui.setStatus("拆分镜", "busy");
     try {
+      settings.requireTextApiKey();
       const text = els.copyOutput.value.trim();
       if (!text) throw new Error("请先生成或填写口播文案");
       const story = withCurrentImageSize(await api.postJson("/api/text/copy-to-story", settings.copyToStoryPayload(text)));

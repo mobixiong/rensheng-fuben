@@ -13,8 +13,11 @@ import {
   DOUBAO_TTS_DEFAULT_MODEL,
   DOUBAO_TTS_DEFAULT_VOICE_ID,
   DOUBAO_TTS_MODELS,
+  DEFAULT_IMAGE_MODEL,
   GEMINI_WEB2API_DEFAULT_BASE_URL,
   GEMINI_WEB2API_DEFAULT_MODEL,
+  DEFAULT_LLM_BASE_URL,
+  DEFAULT_TEXT_MODEL,
   IMAGE_CONCURRENCY_LIMIT,
   IMAGE_SIZES,
   IMPROVE_IMAGE_PROMPT_VERSION,
@@ -26,9 +29,10 @@ import {
   SETTINGS_KEY,
   STORYBOARD_GRANULARITIES,
   THEME_IDEA_PROMPT_VERSION,
-} from "./constants.js?v=20260705_doubao_tts";
+} from "./constants.js?v=20260706_doubao_voice_select";
 
 const SECRET_SETTINGS_KEY = `${SETTINGS_KEY}-session-secrets`;
+const MISSING_API_KEY_MESSAGE = "密钥未填写，密钥是群号";
 const IMAGE_STYLE_PRESET_KEYS = ["short_video", "realistic", "cinematic", "anime"];
 const IMAGE_STYLE_COMMON_RULES = [
   "景别以中景、全景为主，禁止连续使用人物大特写。",
@@ -87,6 +91,8 @@ export function createSettings({ els }) {
   let defaultImagePrompt = "";
   let defaultImproveImagePrompt = "";
   let defaultThemeIdeaPrompt = "";
+  let doubaoVoiceCatalog = null;
+  let doubaoVoiceCatalogPromise = null;
 
   function copyPromptPreset() {
     return syncCopyPromptPreset(els.copyPromptPreset?.value || els.themeCopyPreset?.value || DEFAULT_COPY_PROMPT_PRESET);
@@ -173,16 +179,29 @@ export function createSettings({ els }) {
   }
 
   function applyTextProviderDefaults() {
-    if (els.textProvider.value !== "gemini_web2api") return;
-    if (!els.baseUrl.value.trim() || els.baseUrl.value.includes("api.example.com")) {
-      els.baseUrl.value = GEMINI_WEB2API_DEFAULT_BASE_URL;
-    }
-    if (!els.model.value.trim() || els.model.value === "your-model-name") {
-      els.model.value = GEMINI_WEB2API_DEFAULT_MODEL;
-    }
-    if (!els.apiKey.value.trim()) {
-      els.apiKey.value = "sk-local";
-    }
+    replaceIfBlankOrKnown(els.baseUrl, DEFAULT_LLM_BASE_URL, [
+      GEMINI_WEB2API_DEFAULT_BASE_URL,
+      "https://api.example.com",
+    ]);
+    replaceIfBlankOrKnown(els.model, DEFAULT_TEXT_MODEL, [
+      GEMINI_WEB2API_DEFAULT_MODEL,
+      "your-model-name",
+    ]);
+    if (els.apiKey?.value.trim() === "sk-local") els.apiKey.value = "";
+  }
+
+  function applyImageProviderDefaults() {
+    replaceIfBlankOrKnown(els.imageBaseUrl, DEFAULT_LLM_BASE_URL, ["https://api.example.com"]);
+    replaceIfBlankOrKnown(els.imageModel, DEFAULT_IMAGE_MODEL, ["image-model-name"]);
+    if (els.imageApiKey?.value.trim() === "sk-local") els.imageApiKey.value = "";
+  }
+
+  function requireTextApiKey() {
+    if (!els.apiKey?.value.trim()) throw new Error(MISSING_API_KEY_MESSAGE);
+  }
+
+  function requireImageApiKey() {
+    if (!els.imageApiKey?.value.trim()) throw new Error(MISSING_API_KEY_MESSAGE);
   }
 
   function optionExists(select, value) {
@@ -206,13 +225,111 @@ export function createSettings({ els }) {
     select.value = optionExists(select, current) ? current : fallbackValue;
   }
 
+  function doubaoModelOptions() {
+    const models = Array.isArray(doubaoVoiceCatalog?.models) ? doubaoVoiceCatalog.models : DOUBAO_TTS_MODELS;
+    return models.filter((model) => model?.selectable !== false);
+  }
+
+  function doubaoModelDefinition(value = els.ttsModel?.value || "") {
+    return (doubaoVoiceCatalog?.models || []).find((model) => model.value === value) || null;
+  }
+
+  function doubaoAllKnownVoiceIds() {
+    const ids = new Set();
+    for (const group of doubaoVoiceCatalog?.groups || []) {
+      for (const voice of group.voices || []) {
+        if (voice?.id) ids.add(voice.id);
+      }
+    }
+    return ids;
+  }
+
+  function doubaoVoicesForModel(value = els.ttsModel?.value || "") {
+    if (!doubaoVoiceCatalog) return [];
+    const model = doubaoModelDefinition(value);
+    const groupIds = new Set(model?.voice_groups || []);
+    const voices = [];
+    const seen = new Set();
+    for (const group of doubaoVoiceCatalog.groups || []) {
+      if (!groupIds.has(group.id)) continue;
+      for (const voice of group.voices || []) {
+        if (!voice?.id || seen.has(voice.id)) continue;
+        voices.push(voice);
+        seen.add(voice.id);
+      }
+    }
+    return voices;
+  }
+
+  function voiceOptionLabel(voice) {
+    return [voice.name, voice.id, voice.scene].filter(Boolean).join(" | ") || voice.id;
+  }
+
+  function syncTtsVoiceOptions(preferredValue = "") {
+    const select = els.ttsVoiceId;
+    if (!select) return;
+    if (els.ttsProvider?.value !== "doubao") {
+      const current = (preferredValue || select.value || MINIMAX_TTS_DEFAULT_VOICE_ID).trim();
+      setSelectOptions(
+        select,
+        [{ value: current || MINIMAX_TTS_DEFAULT_VOICE_ID, label: current || MINIMAX_TTS_DEFAULT_VOICE_ID }],
+        MINIMAX_TTS_DEFAULT_VOICE_ID,
+        current,
+      );
+      return;
+    }
+    const voices = doubaoVoicesForModel();
+    const current = (preferredValue || select.value || "").trim();
+    if (!voices.length) {
+      const fallback = current || doubaoModelDefinition()?.default_voice_id || DOUBAO_TTS_DEFAULT_VOICE_ID;
+      setSelectOptions(select, [{ value: fallback, label: fallback }], fallback, fallback);
+      return;
+    }
+    const currentExists = voices.some((voice) => voice.id === current);
+    const knownVoiceIds = doubaoAllKnownVoiceIds();
+    const fallback = doubaoModelDefinition()?.default_voice_id || voices[0]?.id || DOUBAO_TTS_DEFAULT_VOICE_ID;
+    const nextValue = (!current || current === MINIMAX_TTS_DEFAULT_VOICE_ID || (knownVoiceIds.has(current) && !currentExists))
+      ? fallback
+      : current;
+    const options = voices.map((voice) => ({ value: voice.id, label: voiceOptionLabel(voice) }));
+    if (nextValue && !voices.some((voice) => voice.id === nextValue)) {
+      options.unshift({ value: nextValue, label: `${nextValue} | custom` });
+    }
+    setSelectOptions(select, options, fallback, nextValue);
+  }
+
+  async function loadDoubaoVoiceCatalog() {
+    if (doubaoVoiceCatalogPromise) return doubaoVoiceCatalogPromise;
+    doubaoVoiceCatalogPromise = fetch("/api/tts/doubao/voices")
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.detail || `HTTP ${response.status}`);
+        return data;
+      })
+      .then((data) => {
+        doubaoVoiceCatalog = data;
+        syncTtsModelOptions(els.ttsModel?.value || "");
+        syncTtsVoiceOptions();
+        return data;
+      })
+      .catch(() => {
+        doubaoVoiceCatalogPromise = null;
+        syncTtsVoiceOptions();
+        return null;
+      });
+    return doubaoVoiceCatalogPromise;
+  }
+
   function syncTtsModelOptions(preferredValue = "") {
     if (!els.ttsModel) return;
     if (els.ttsProvider?.value === "doubao") {
-      setSelectOptions(els.ttsModel, DOUBAO_TTS_MODELS, DOUBAO_TTS_DEFAULT_MODEL, preferredValue);
+      const preferred = preferredValue || els.ttsModel.value;
+      setSelectOptions(els.ttsModel, doubaoModelOptions(), DOUBAO_TTS_DEFAULT_MODEL, preferred);
+      syncTtsVoiceOptions();
       return;
     }
     setSelectOptions(els.ttsModel, MINIMAX_TTS_MODELS, MINIMAX_TTS_DEFAULT_MODEL, preferredValue);
+    syncTtsVoiceOptions();
   }
 
   function replaceIfBlankOrKnown(input, value, knownValues = []) {
@@ -229,6 +346,8 @@ export function createSettings({ els }) {
       replaceIfBlankOrKnown(els.ttsVoiceId, DOUBAO_TTS_DEFAULT_VOICE_ID, [MINIMAX_TTS_DEFAULT_VOICE_ID]);
       if (els.ttsModel && !optionExists(els.ttsModel, els.ttsModel.value)) els.ttsModel.value = DOUBAO_TTS_DEFAULT_MODEL;
       if (els.ttsSpeed && !els.ttsSpeed.value.trim()) els.ttsSpeed.value = "1.0";
+      loadDoubaoVoiceCatalog();
+      syncTtsVoiceOptions();
       return;
     }
     replaceIfBlankOrKnown(els.ttsBaseUrl, MINIMAX_TTS_DEFAULT_BASE_URL, [DOUBAO_TTS_DEFAULT_BASE_URL]);
@@ -250,6 +369,7 @@ export function createSettings({ els }) {
     if (voiceField) voiceField.hidden = provider !== "edge";
     if (rateField) rateField.hidden = provider !== "edge";
     applyTtsProviderDefaults();
+    if (provider === "doubao") loadDoubaoVoiceCatalog();
   }
 
   function persist() {
@@ -371,7 +491,7 @@ export function createSettings({ els }) {
       if (els.ttsApiKey) els.ttsApiKey.value = secrets.ttsApiKey || s.ttsApiKey || "";
       if (els.ttsGroupId) els.ttsGroupId.value = s.ttsGroupId || "";
       if (els.ttsModel) els.ttsModel.value = optionExists(els.ttsModel, s.ttsModel) ? s.ttsModel : (els.ttsProvider?.value === "doubao" ? DOUBAO_TTS_DEFAULT_MODEL : MINIMAX_TTS_DEFAULT_MODEL);
-      if (els.ttsVoiceId) els.ttsVoiceId.value = s.ttsVoiceId || (els.ttsProvider?.value === "doubao" ? DOUBAO_TTS_DEFAULT_VOICE_ID : MINIMAX_TTS_DEFAULT_VOICE_ID);
+      if (els.ttsVoiceId) syncTtsVoiceOptions(s.ttsVoiceId || (els.ttsProvider?.value === "doubao" ? DOUBAO_TTS_DEFAULT_VOICE_ID : MINIMAX_TTS_DEFAULT_VOICE_ID));
       if (els.ttsSpeed) els.ttsSpeed.value = s.ttsSpeed || "1.0";
       if (els.ttsEmotion) els.ttsEmotion.value = s.ttsEmotion || "";
       if (els.ttsLanguageBoost) els.ttsLanguageBoost.value = s.ttsLanguageBoost || "Chinese";
@@ -397,6 +517,7 @@ export function createSettings({ els }) {
         els.themeIdeaPrompt.value = s.themeIdeaPrompt;
       }
       applyTextProviderDefaults();
+      applyImageProviderDefaults();
       updateTtsProviderVisibility();
     } catch {}
   }
@@ -664,10 +785,20 @@ export function createSettings({ els }) {
     };
   }
 
+  function currentTtsPreviewText() {
+    try {
+      const story = JSON.parse(els.editor?.value || "{}");
+      const shot = Array.isArray(story.shots) ? story.shots.find((item) => String(item?.voiceover || "").trim()) : null;
+      const voiceover = String(shot?.voiceover || "").trim();
+      if (voiceover) return voiceover;
+    } catch {}
+    return "今天体验的人生副本，是一次新的开始。";
+  }
+
   function ttsPreviewPayload() {
     const config = ttsConfigPayload();
     return {
-      text: "今天体验的人生副本，是一次新的开始。",
+      text: currentTtsPreviewText(),
       voice: els.voice?.value || "zh-CN-YunxiNeural",
       rate: els.rate?.value || "+12%",
       tts_provider: config.provider,
@@ -774,7 +905,10 @@ export function createSettings({ els }) {
     ttsPreviewPayload,
     improveImagePromptPayload,
     autoPipelinePayload,
+    requireTextApiKey,
+    requireImageApiKey,
     applyTtsProviderDefaults,
     updateTtsProviderVisibility,
+    syncTtsVoiceOptions,
   };
 }

@@ -12,6 +12,7 @@ from .render_service import create_render_job, get_render_job
 from .render_validation import validate_ready_for_render
 from .schemas import IntroPreviewRequest, RenderRequest, TtsPreviewRequest
 from .tts_adapter import TtsConfig, synthesize_tts
+from .doubao_voices import get_doubao_voice_catalog
 
 
 router = APIRouter()
@@ -101,6 +102,11 @@ def tts_preview(req: TtsPreviewRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/api/tts/doubao/voices")
+def doubao_tts_voices(resource_id: str = "") -> dict[str, Any]:
+    return get_doubao_voice_catalog(resource_id)
 
 
 @router.post("/api/render/jobs")

@@ -915,8 +915,8 @@ def _render_payload(job: dict[str, Any], state: dict[str, Any]) -> dict[str, Any
     input_data = job.get("input") or {}
     tts_config = _with_runtime_keys(job, "tts_config")
     tts_provider = tts_config.get("provider") or input_data.get("tts_provider") or "edge"
-    default_tts_model = "seed-tts-2.0" if tts_provider == "doubao" else "speech-2.8-hd"
-    default_tts_voice_id = "zh_female_shuangkuaisisi_moon_bigtts" if tts_provider == "doubao" else "male-qn-qingse"
+    default_tts_model = "volc.service_type.10029" if tts_provider == "doubao" else "speech-2.8-hd"
+    default_tts_voice_id = "zh_male_beijingxiaoye_emo_v2_mars_bigtts" if tts_provider == "doubao" else "male-qn-qingse"
     return {
         "story": state.get("story") or {},
         "voice": input_data.get("voice") or "zh-CN-YunxiNeural",

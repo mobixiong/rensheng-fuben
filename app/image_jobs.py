@@ -175,7 +175,7 @@ def _item_error(exc: Exception) -> tuple[str, str, str]:
 def _is_non_retryable(exc: Exception) -> bool:
     if not isinstance(exc, ImageError):
         return False
-    return exc.category in {"prompt_policy", "quota"} or exc.status_code == 429
+    return exc.category in {"prompt_policy", "quota", "auth", "config"} or exc.status_code == 429
 
 
 def _apply_success(project_id: str, shot_index: int, result_story: dict[str, Any]) -> str:
@@ -393,6 +393,11 @@ def create_image_job(
     auto_reference_enabled: bool = False,
     reference_llm_cfg: LLMConfig | None = None,
 ) -> dict[str, Any]:
+    if not cfg.api_key:
+        raise ImageError("密钥未填写，密钥是群号", code="missing_api_key", category="auth")
+    if not cfg.base_url or not cfg.model:
+        raise ImageError("Image base_url/model is required", code="missing_config", category="config")
+
     project_id = _project_id_from_story(story, project_id)
     shots = story.get("shots") if isinstance(story.get("shots"), list) else []
     if not shots:

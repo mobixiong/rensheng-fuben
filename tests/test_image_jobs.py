@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from app import image_jobs, project_service
+from app.image_adapter import ImageConfig, ImageError
 from app.image_status import IMAGE_JOB_DONE, IMAGE_JOB_FAILED, IMAGE_JOB_QUEUED, IMAGE_JOB_RETRYING
 
 
@@ -88,3 +89,17 @@ def test_public_image_job_uses_shared_secret_redaction():
     assert "fixed_prompt" not in public
     assert "api_key" not in public
     assert public["image_config"] == {"model": "demo-model"}
+
+
+def test_create_image_job_rejects_missing_api_key():
+    story = {"shots": [{"voiceover": "测试", "visual": "测试画面"}]}
+    cfg = ImageConfig(base_url="http://43.131.249.187:3000/v1", model="gpt-image-2", api_key="")
+
+    try:
+        image_jobs.create_image_job(story, cfg)
+    except ImageError as exc:
+        assert str(exc) == "密钥未填写，密钥是群号"
+        assert exc.category == "auth"
+        assert exc.code == "missing_api_key"
+    else:
+        raise AssertionError("expected ImageError")

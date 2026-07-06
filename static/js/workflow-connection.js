@@ -26,6 +26,7 @@ export function createConnectionWorkflow({ els, ui, api, settings, storyView, pr
     ui.setStatus("测试文案", "busy");
     ui.setTestResult(els.textConnectionResult, "测试中", "testing");
     try {
+      settings.requireTextApiKey();
       const data = await api.postJson("/api/settings/test-text", settings.textConnectionPayload());
       ui.setTestResult(els.textConnectionResult, "连接成功", "ok");
       els.result.textContent = JSON.stringify({
@@ -50,6 +51,7 @@ export function createConnectionWorkflow({ els, ui, api, settings, storyView, pr
     ui.setStatus("测试图片", "busy");
     ui.setTestResult(els.imageConnectionResult, "测试中", "testing");
     try {
+      settings.requireImageApiKey();
       const data = await api.postJson("/api/settings/test-image", settings.imageConnectionPayload());
       ui.setTestResult(els.imageConnectionResult, "连接成功", "ok");
       els.result.textContent = JSON.stringify({

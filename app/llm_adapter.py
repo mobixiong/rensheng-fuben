@@ -13,8 +13,11 @@ COPY_TO_STORY_PROMPT_PATH = ROOT / "prompts" / "copy_to_story.md"
 THEME_PROMPT_PATH = ROOT / "prompts" / "theme_plan.md"
 THEME_IDEAS_PROMPT_PATH = ROOT / "prompts" / "theme_ideas.md"
 IMPROVE_IMAGE_PROMPT_PATH = ROOT / "prompts" / "image_prompt_improve.md"
+DEFAULT_LLM_BASE_URL = "http://43.131.249.187:3000/v1"
+DEFAULT_TEXT_MODEL = "gpt-5.5"
 GEMINI_WEB2API_BASE_URL = "http://127.0.0.1:8081/v1"
 GEMINI_WEB2API_MODEL = "gemini-3.5-flash-thinking"
+MISSING_API_KEY_MESSAGE = "密钥未填写，密钥是群号"
 STORYBOARD_GRANULARITY_RULES = {
     "coarse": """分镜粒度模式：粗。
 - 目标是镜头更少、每个镜头承载更完整的一小段语义。
@@ -48,9 +51,9 @@ class LLMConfig:
     def from_payload(cls, payload: dict[str, Any]) -> "LLMConfig":
         return cls(
             provider=(payload.get("provider") or os.getenv("TEXT_PROVIDER") or "openai").strip(),
-            base_url=(payload.get("base_url") or os.getenv("LLM_BASE_URL") or "").strip(),
+            base_url=(payload.get("base_url") or os.getenv("LLM_BASE_URL") or DEFAULT_LLM_BASE_URL).strip(),
             api_key=(payload.get("api_key") or os.getenv("LLM_API_KEY") or "").strip(),
-            model=(payload.get("model") or os.getenv("LLM_MODEL") or "").strip(),
+            model=(payload.get("model") or os.getenv("LLM_MODEL") or DEFAULT_TEXT_MODEL).strip(),
             temperature=float(payload.get("temperature") or os.getenv("LLM_TEMPERATURE") or 0.8),
         )
 
@@ -119,8 +122,10 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 def _chat_text(system_prompt: str, user_content: str, cfg: LLMConfig) -> str:
-    if not cfg.base_url or not cfg.api_key or not cfg.model:
-        raise LLMError("LLM base_url/api_key/model is required")
+    if not cfg.api_key:
+        raise LLMError(MISSING_API_KEY_MESSAGE)
+    if not cfg.base_url or not cfg.model:
+        raise LLMError("LLM base_url/model is required")
 
     body = {
         "model": cfg.model,
@@ -172,7 +177,7 @@ def _gemini_web2api_text(prompt: str, user_content: str, cfg: LLMConfig) -> str:
     web2api_cfg = replace(
         cfg,
         base_url=cfg.base_url or os.getenv("GEMINI_WEB2API_BASE_URL") or GEMINI_WEB2API_BASE_URL,
-        api_key=cfg.api_key or os.getenv("GEMINI_WEB2API_API_KEY") or "sk-local",
+        api_key=cfg.api_key or os.getenv("GEMINI_WEB2API_API_KEY") or "",
         model=cfg.model or os.getenv("GEMINI_WEB2API_MODEL") or GEMINI_WEB2API_MODEL,
     )
     return _chat_text(prompt, user_content, web2api_cfg)

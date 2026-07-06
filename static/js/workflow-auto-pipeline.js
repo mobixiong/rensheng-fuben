@@ -198,6 +198,8 @@ export function createAutoPipelineWorkflow({ els, ui, api, settings, projectStor
     settings.persist();
     ui.setBusy(true);
     ui.setStatus("创建自动流水线", "busy");
+    settings.requireTextApiKey();
+    settings.requireImageApiKey();
     const data = await api.postJson("/api/auto-pipeline/jobs", settings.autoPipelinePayload());
     updateAutoPipelineView(data.job);
     setActiveTab("auto");

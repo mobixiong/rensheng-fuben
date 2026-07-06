@@ -1,4 +1,7 @@
 export const SETTINGS_KEY = "rensheng-fuben-settings";
+export const DEFAULT_LLM_BASE_URL = "http://43.131.249.187:3000/v1";
+export const DEFAULT_TEXT_MODEL = "gpt-5.5";
+export const DEFAULT_IMAGE_MODEL = "gpt-image-2";
 export const GEMINI_WEB2API_DEFAULT_BASE_URL = "http://127.0.0.1:8081/v1";
 export const GEMINI_WEB2API_DEFAULT_MODEL = "gemini-3.5-flash-thinking";
 export const MINIMAX_TTS_DEFAULT_BASE_URL = "https://api.minimaxi.com/v1/t2a_v2";
@@ -15,15 +18,13 @@ export const MINIMAX_TTS_MODELS = [
   "speech-01-turbo",
 ];
 export const DOUBAO_TTS_DEFAULT_BASE_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional";
-export const DOUBAO_TTS_DEFAULT_MODEL = "seed-tts-2.0";
-export const DOUBAO_TTS_DEFAULT_VOICE_ID = "zh_female_shuangkuaisisi_moon_bigtts";
+export const DOUBAO_TTS_DEFAULT_MODEL = "volc.service_type.10029";
+export const DOUBAO_TTS_DEFAULT_VOICE_ID = "zh_male_beijingxiaoye_emo_v2_mars_bigtts";
 export const DOUBAO_TTS_MODELS = [
-  { value: "seed-tts-2.0", label: "seed-tts-2.0（语音合成 2.0）" },
-  { value: "seed-tts-1.0", label: "seed-tts-1.0（语音合成 1.0 字符版）" },
-  { value: "seed-tts-1.0-concurr", label: "seed-tts-1.0-concurr（语音合成 1.0 并发版）" },
-  { value: "seed-icl-2.0", label: "seed-icl-2.0（声音复刻 2.0）" },
-  { value: "seed-icl-1.0", label: "seed-icl-1.0（声音复刻 1.0 字符版）" },
-  { value: "seed-icl-1.0-concurr", label: "seed-icl-1.0-concurr（声音复刻 1.0 并发版）" },
+  { value: "volc.service_type.10029", label: "volc.service_type.10029 (legacy 1.0)" },
+  { value: "seed-tts-2.0", label: "seed-tts-2.0 (2.0)" },
+  { value: "seed-tts-1.0", label: "seed-tts-1.0 (1.0)" },
+  { value: "seed-tts-1.0-concurr", label: "seed-tts-1.0-concurr (1.0 concurrent)" },
 ];
 export const PROJECT_SAVE_DELAY_MS = 1600;
 export const PROJECT_PROGRESS_SAVE_INTERVAL_MS = 2000;

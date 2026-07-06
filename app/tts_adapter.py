@@ -14,13 +14,14 @@ from typing import Any
 import edge_tts
 
 from .errors import RenderError
+from .doubao_voices import default_doubao_voice_for_resource
 
 
 TTS_RETRY_COUNT = 3
 MINIMAX_TTS_BASE_URL = "https://api.minimaxi.com/v1/t2a_v2"
 DOUBAO_TTS_BASE_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
-DOUBAO_TTS_RESOURCE_ID = "seed-tts-2.0"
-DOUBAO_TTS_SPEAKER = "zh_female_shuangkuaisisi_moon_bigtts"
+DOUBAO_TTS_RESOURCE_ID = "volc.service_type.10029"
+DOUBAO_TTS_SPEAKER = "zh_male_beijingxiaoye_emo_v2_mars_bigtts"
 
 
 @dataclass
@@ -55,7 +56,12 @@ class TtsConfig:
                 model = str(os.getenv("DOUBAO_TTS_RESOURCE_ID") or DOUBAO_TTS_RESOURCE_ID).strip()
             voice_id = str(payload.get("tts_voice_id") or payload.get("voice_id") or "").strip()
             if not voice_id or voice_id == "male-qn-qingse":
-                voice_id = str(os.getenv("DOUBAO_TTS_SPEAKER") or DOUBAO_TTS_SPEAKER).strip()
+                env_speaker = str(os.getenv("DOUBAO_TTS_SPEAKER") or "").strip()
+                env_resource_id = str(os.getenv("DOUBAO_TTS_RESOURCE_ID") or DOUBAO_TTS_RESOURCE_ID).strip()
+                if env_speaker and model == env_resource_id:
+                    voice_id = env_speaker
+                else:
+                    voice_id = default_doubao_voice_for_resource(model)
         else:
             base_url = str(payload.get("tts_base_url") or payload.get("base_url") or os.getenv("MINIMAX_TTS_BASE_URL") or "").strip()
             api_key = str(payload.get("tts_api_key") or payload.get("api_key") or os.getenv("MINIMAX_TTS_API_KEY") or "").strip()
@@ -222,6 +228,23 @@ def _doubao_loudness_rate(volume: float) -> int:
     return max(-50, min(100, int(round((volume - 1.0) * 100))))
 
 
+def _doubao_additions(config: TtsConfig) -> str:
+    additions: dict[str, Any] = {
+        "disable_markdown_filter": True,
+        "enable_language_detector": True,
+        "enable_latex_tn": True,
+        "disable_default_bit_rate": True,
+        "max_length_to_filter_parenthesis": 0,
+        "cache_config": {
+            "text_type": 1,
+            "use_cache": True,
+        },
+    }
+    if config.pitch:
+        additions["post_process"] = {"pitch": config.pitch}
+    return json.dumps(additions, ensure_ascii=False, separators=(",", ":"))
+
+
 def _iter_json_objects_from_stream(resp: Any) -> Any:
     decoder = json.JSONDecoder()
     buffer = ""
@@ -281,15 +304,10 @@ def _doubao_tts(text: str, out_path: Path, config: TtsConfig) -> None:
         "req_params": {
             "text": text,
             "speaker": config.voice_id,
+            "additions": _doubao_additions(config),
             "audio_params": audio_params,
-            "additions": {
-                "disable_default_bit_rate": True,
-                "aigc_watermark": False,
-            },
         },
     }
-    if config.pitch:
-        payload["req_params"]["additions"]["post_process"] = {"pitch": config.pitch}
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         _doubao_tts_url(config),

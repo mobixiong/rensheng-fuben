@@ -3,14 +3,16 @@ import socket
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 import webbrowser
+from datetime import datetime
 from multiprocessing import freeze_support
 
 import uvicorn
 
 from app.main import app
-from app.paths import ENV_PATH, WORKSPACE
+from app.paths import APP_DIR, ENV_PATH, WORKSPACE
 
 
 def _port_in_use(host: str, port: int) -> bool:
@@ -58,6 +60,40 @@ def main() -> int:
     return 0
 
 
+def _write_startup_error(exc: BaseException) -> None:
+    try:
+        APP_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = APP_DIR / "startup-error.log"
+        log_path.write_text(
+            "\n".join([
+                f"time: {datetime.now().isoformat(timespec='seconds')}",
+                f"error: {exc!r}",
+                "",
+                traceback.format_exc(),
+            ]),
+            encoding="utf-8",
+        )
+        print(f"Startup error log: {log_path}")
+    except Exception:
+        pass
+
+
+def _pause_for_error() -> None:
+    try:
+        input("Startup failed. Press Enter to exit...")
+    except Exception:
+        time.sleep(20)
+
+
 if __name__ == "__main__":
     freeze_support()
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        raise SystemExit(0)
+    except Exception as exc:
+        print("Startup failed.")
+        traceback.print_exc()
+        _write_startup_error(exc)
+        _pause_for_error()
+        raise SystemExit(1)

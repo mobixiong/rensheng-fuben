@@ -366,7 +366,7 @@ MiniMax 使用官方同步语音合成接口 `POST /v1/t2a_v2`，工作台请求
 ```text
 接口地址：https://openspeech.bytedance.com/api/v3/tts/unidirectional
 API Key：当前用户自己的火山引擎豆包语音 API Key
-模型 / Resource ID：seed-tts-2.0、seed-tts-1.0、seed-icl-2.0 等
+模型 / Resource ID：volc.service_type.10029
 音色 ID：火山音色列表或声音复刻得到的 speaker ID
 ```
 

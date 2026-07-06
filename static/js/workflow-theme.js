@@ -52,6 +52,7 @@ export function createThemeWorkflow({ els, ui, api, settings, storyView, project
     ui.setBusy(true);
     ui.setStatus(refineIndex >= 0 ? "细化方向" : rerollIndex >= 0 ? "重抽方向" : reroll ? "换一批方向" : "AI 出方向", "busy");
     try {
+      settings.requireTextApiKey();
       const baseBrief = els.themeBrief?.value.trim() || "";
       const currentIdea = themeIdeas[refineIndex >= 0 ? refineIndex : rerollIndex];
       const extra = {};
@@ -101,13 +102,14 @@ export function createThemeWorkflow({ els, ui, api, settings, storyView, project
   async function generateTheme(options = {}) {
     const { reroll = false } = options;
     settings.persist();
-    if (!settings.themePayload().brief) {
+    if (!(els.themeBrief?.value.trim() || els.topic.value.trim())) {
       ui.setStatus("请先填写选题方向", "error");
       return;
     }
     ui.setBusy(true);
     ui.setStatus(reroll ? "重抽主题" : "生成主题", "busy");
     try {
+      settings.requireTextApiKey();
       const payload = settings.themePayload();
       if (reroll && els.topic.value.trim()) {
         payload.brief = [
@@ -132,18 +134,19 @@ export function createThemeWorkflow({ els, ui, api, settings, storyView, project
 
   async function reviseTheme() {
     settings.persist();
-    const payload = settings.themeRevisionPayload();
-    if (!payload.topic || !payload.intro) {
+    if (!els.topic.value.trim() || !els.themeIntro?.value.trim()) {
       ui.setStatus("请先生成或填写主题", "error");
       return;
     }
-    if (!payload.instruction) {
+    if (!els.themeRevision?.value.trim()) {
       ui.setStatus("请先填写修改意见", "error");
       return;
     }
     ui.setBusy(true);
     ui.setStatus("修改主题", "busy");
     try {
+      settings.requireTextApiKey();
+      const payload = settings.themeRevisionPayload();
       const data = await api.postJson("/api/text/revise-theme", payload);
       applyThemeResult(data);
       await projectStore.saveNow();

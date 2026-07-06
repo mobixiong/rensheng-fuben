@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import shutil
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
@@ -8,6 +9,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 root = Path.cwd()
 
 datas = []
+binaries = []
 
 
 def add_file(src: Path, dest: Path | str) -> None:
@@ -24,6 +26,12 @@ def add_tree(src_dir: Path, dest_dir: Path | str) -> None:
             datas.append((str(path), str(dest_root / path.relative_to(src_dir).parent)))
 
 
+def add_binary_from_path(name: str, dest_dir: Path | str) -> None:
+    path = shutil.which(name)
+    if path:
+        binaries.append((path, str(dest_dir)))
+
+
 for file_name in ("prompt.txt", ".env.example", "README.md", "LICENSE"):
     add_file(root / file_name, ".")
 
@@ -35,7 +43,9 @@ for package_name in ("uvicorn", "edge_tts", "pyJianYingDraft", "pymediainfo", "i
     hiddenimports += collect_submodules(package_name)
 
 datas += collect_data_files("pyJianYingDraft")
-binaries = collect_dynamic_libs("pymediainfo")
+binaries += collect_dynamic_libs("pymediainfo")
+add_binary_from_path("ffmpeg", "bin")
+add_binary_from_path("ffprobe", "bin")
 
 
 a = Analysis(

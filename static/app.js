@@ -1,6 +1,6 @@
 import * as api from "./js/api.js";
 import { $ , createUi } from "./js/ui.js";
-import { createSettings } from "./js/settings.js?v=20260706_tts_preview";
+import { createSettings } from "./js/settings.js?v=20260706_doubao_voice_select";
 import { createStoryView } from "./js/story-view.js";
 import { createProjectStore } from "./js/project-store.js?v=20260706_jianying_edit";
 import { createReferenceAssets } from "./js/reference-assets.js";
@@ -547,6 +547,10 @@ function bindEvents() {
   on("ttsProvider", "change", () => {
     settings.updateTtsProviderVisibility();
     persistAndSave();
+  });
+  on("ttsModel", "change", () => {
+    settings.syncTtsVoiceOptions();
+    settings.persist();
   });
   for (const id of ["ttsApiKey", "ttsBaseUrl", "ttsGroupId", "ttsModel", "ttsVoiceId", "ttsSpeed", "ttsEmotion", "ttsLanguageBoost"]) {
     on(id, "input", settings.persist);
