@@ -14,8 +14,12 @@ import {
   DOUBAO_TTS_DEFAULT_VOICE_ID,
   DOUBAO_TTS_MODELS,
   DEFAULT_IMAGE_MODEL,
-  GEMINI_WEB2API_DEFAULT_BASE_URL,
-  GEMINI_WEB2API_DEFAULT_MODEL,
+  ANTHROPIC_DEFAULT_BASE_URL,
+  ANTHROPIC_DEFAULT_MODEL,
+  GEMINI_DEFAULT_BASE_URL,
+  GEMINI_DEFAULT_MODEL,
+  GEMINI_IMAGE_DEFAULT_BASE_URL,
+  GEMINI_IMAGE_DEFAULT_MODEL,
   DEFAULT_LLM_BASE_URL,
   DEFAULT_TEXT_MODEL,
   IMAGE_CONCURRENCY_LIMIT,
@@ -178,21 +182,61 @@ export function createSettings({ els }) {
     return cleaned;
   }
 
+  function textProviderDefaults(provider = els.textProvider?.value || "openai") {
+    const key = String(provider || "openai").toLowerCase();
+    if (key === "anthropic" || key === "claude") {
+      return {
+        baseUrl: ANTHROPIC_DEFAULT_BASE_URL,
+        model: ANTHROPIC_DEFAULT_MODEL,
+        knownBaseUrls: [DEFAULT_LLM_BASE_URL, GEMINI_DEFAULT_BASE_URL, "https://api.example.com"],
+        knownModels: [DEFAULT_TEXT_MODEL, GEMINI_DEFAULT_MODEL, "your-model-name"],
+      };
+    }
+    if (key === "gemini" || key === "google" || key === "google_gemini") {
+      return {
+        baseUrl: GEMINI_DEFAULT_BASE_URL,
+        model: GEMINI_DEFAULT_MODEL,
+        knownBaseUrls: [DEFAULT_LLM_BASE_URL, ANTHROPIC_DEFAULT_BASE_URL, "https://api.example.com"],
+        knownModels: [DEFAULT_TEXT_MODEL, ANTHROPIC_DEFAULT_MODEL, "your-model-name"],
+      };
+    }
+    return {
+      baseUrl: DEFAULT_LLM_BASE_URL,
+      model: DEFAULT_TEXT_MODEL,
+      knownBaseUrls: [ANTHROPIC_DEFAULT_BASE_URL, GEMINI_DEFAULT_BASE_URL, "https://api.example.com"],
+      knownModels: [ANTHROPIC_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, "your-model-name"],
+    };
+  }
+
+  function imageProviderDefaults(provider = els.imageProvider?.value || "openai") {
+    const key = String(provider || "openai").toLowerCase();
+    if (key === "gemini" || key === "google" || key === "google_gemini" || key === "imagen") {
+      return {
+        baseUrl: GEMINI_IMAGE_DEFAULT_BASE_URL,
+        model: GEMINI_IMAGE_DEFAULT_MODEL,
+        knownBaseUrls: [DEFAULT_LLM_BASE_URL, "https://api.example.com"],
+        knownModels: [DEFAULT_IMAGE_MODEL, "image-model-name"],
+      };
+    }
+    return {
+      baseUrl: DEFAULT_LLM_BASE_URL,
+      model: DEFAULT_IMAGE_MODEL,
+      knownBaseUrls: [GEMINI_IMAGE_DEFAULT_BASE_URL, "https://api.example.com"],
+      knownModels: [GEMINI_IMAGE_DEFAULT_MODEL, "image-model-name"],
+    };
+  }
+
   function applyTextProviderDefaults() {
-    replaceIfBlankOrKnown(els.baseUrl, DEFAULT_LLM_BASE_URL, [
-      GEMINI_WEB2API_DEFAULT_BASE_URL,
-      "https://api.example.com",
-    ]);
-    replaceIfBlankOrKnown(els.model, DEFAULT_TEXT_MODEL, [
-      GEMINI_WEB2API_DEFAULT_MODEL,
-      "your-model-name",
-    ]);
+    const defaults = textProviderDefaults();
+    replaceIfBlankOrKnown(els.baseUrl, defaults.baseUrl, defaults.knownBaseUrls);
+    replaceIfBlankOrKnown(els.model, defaults.model, defaults.knownModels);
     if (els.apiKey?.value.trim() === "sk-local") els.apiKey.value = "";
   }
 
   function applyImageProviderDefaults() {
-    replaceIfBlankOrKnown(els.imageBaseUrl, DEFAULT_LLM_BASE_URL, ["https://api.example.com"]);
-    replaceIfBlankOrKnown(els.imageModel, DEFAULT_IMAGE_MODEL, ["image-model-name"]);
+    const defaults = imageProviderDefaults();
+    replaceIfBlankOrKnown(els.imageBaseUrl, defaults.baseUrl, defaults.knownBaseUrls);
+    replaceIfBlankOrKnown(els.imageModel, defaults.model, defaults.knownModels);
     if (els.imageApiKey?.value.trim() === "sk-local") els.imageApiKey.value = "";
   }
 
@@ -448,7 +492,7 @@ export function createSettings({ els }) {
           imageApiKey: secrets.imageApiKey,
         });
       }
-      els.textProvider.value = ["openai", "gemini_web2api"].includes(s.textProvider) ? s.textProvider : "openai";
+
       if (s.topic) els.topic.value = s.topic;
       if (els.themeBrief && typeof s.themeBrief === "string") els.themeBrief.value = s.themeBrief;
       if (els.themeIntro && typeof s.themeIntro === "string") els.themeIntro.value = s.themeIntro;
@@ -464,10 +508,11 @@ export function createSettings({ els }) {
       if (els.autoOptimizeImagePrompts) els.autoOptimizeImagePrompts.checked = s.autoOptimizeImagePrompts !== false;
       if (els.autoInfiniteImageRetry) els.autoInfiniteImageRetry.checked = Boolean(s.autoInfiniteImageRetry);
       if (els.autoRenderAfterImages) els.autoRenderAfterImages.checked = s.autoRenderAfterImages !== false;
+      els.textProvider.value = ["openai", "anthropic", "claude", "gemini", "google", "google_gemini"].includes(s.textProvider) ? (s.textProvider === "claude" ? "anthropic" : (s.textProvider === "google" || s.textProvider === "google_gemini" ? "gemini" : s.textProvider)) : "openai";
       els.baseUrl.value = s.baseUrl || "";
       els.model.value = s.model || "";
       els.apiKey.value = secrets.apiKey || s.apiKey || "";
-      els.imageProvider.value = s.imageProvider === "openai" ? s.imageProvider : "openai";
+      els.imageProvider.value = ["openai", "gemini", "google", "google_gemini", "imagen"].includes(s.imageProvider) ? (["google", "google_gemini", "imagen"].includes(s.imageProvider) ? "gemini" : s.imageProvider) : "openai";
       els.imageBaseUrl.value = s.imageBaseUrl || "";
       els.imageModel.value = s.imageModel || "";
       els.imageApiKey.value = secrets.imageApiKey || s.imageApiKey || "";

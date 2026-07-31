@@ -3,14 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .paths import ENV_PATH, STATIC, WORKSPACE
-from .routes_assets import router as assets_router
-from .routes_auto_pipeline import router as auto_pipeline_router
-from .routes_generation import router as generation_router
-from .routes_jianying import router as jianying_router
-from .routes_project import router as project_router
-from .routes_prompts import router as prompts_router
-from .routes_render import router as render_router
+from app.core.paths import ENV_PATH, STATIC, WORKSPACE
+from app.api.routes.assets import router as assets_router
+from app.api.routes.auto_pipeline import router as auto_pipeline_router
+from app.api.routes.generation import router as generation_router
+from app.api.routes.jianying import router as jianying_router
+from app.api.routes.project import router as project_router
+from app.api.routes.prompts import router as prompts_router
+from app.api.routes.render import router as render_router
 
 
 try:

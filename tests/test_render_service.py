@@ -24,6 +24,7 @@ def _ready_story(project_id: str) -> dict:
 
 def test_existing_final_video_is_reused_without_force_render(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     render_service._RENDER_JOBS.clear()
     project_id = "render_reuse"
     project_dir = project_service.project_dir(project_id)
@@ -39,6 +40,7 @@ def test_existing_final_video_is_reused_without_force_render(tmp_path, monkeypat
 
 def test_force_render_creates_new_queued_job_even_when_final_exists(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     render_service._RENDER_JOBS.clear()
     started: list[bool] = []
     project_id = "render_force"

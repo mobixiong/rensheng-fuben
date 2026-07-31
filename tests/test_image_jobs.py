@@ -9,6 +9,7 @@ from app.image_status import IMAGE_JOB_DONE, IMAGE_JOB_FAILED, IMAGE_JOB_QUEUED,
 
 def test_save_image_job_updates_counts_and_uses_shared_job_store(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
 
     job = {
         "job_id": "img_test",
@@ -39,6 +40,7 @@ def test_save_image_job_updates_counts_and_uses_shared_job_store(tmp_path, monke
 
 def test_list_project_jobs_ignores_non_image_jobs(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     project_id = "mixed_jobs"
     jobs_dir = project_service.project_dir(project_id) / "jobs"
     jobs_dir.mkdir(parents=True)

@@ -559,6 +559,10 @@ function bindEvents() {
     settings.applyTextProviderDefaults();
     settings.persist();
   });
+  on("imageProvider", "change", () => {
+    settings.applyImageProviderDefaults();
+    settings.persist();
+  });
   state.referenceAssets?.bindEvents();
   document.addEventListener("keydown", (event) => {
     const promptEditor = event.target.closest?.("[data-shot-prompt-editor]");

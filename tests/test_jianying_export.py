@@ -21,6 +21,7 @@ def _write_wav(path: Path, seconds: float = 0.4) -> None:
 
 def test_create_jianying_draft_from_project_assets(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     monkeypatch.setattr(jianying_export, "render_story", lambda **kwargs: {
         "project_id": "jy_project",
         "title": "剪映测试",

@@ -14,6 +14,7 @@ def _persisted_job(project_id: str, job_id: str) -> dict:
 
 def test_resume_resets_failed_render_step_and_clears_render_job_id(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     monkeypatch.setattr(auto_pipeline_jobs, "_runner", type("R", (), {"submit": staticmethod(lambda *a, **k: None)})())
 
     project_id = "resume_render"
@@ -61,6 +62,7 @@ def test_resume_resets_failed_render_step_and_clears_render_job_id(tmp_path, mon
 
 def test_resume_skips_completed_jobs(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
 
     project_id = "resume_complete"
     job_id = "auto_done_00000001"
@@ -91,6 +93,7 @@ def test_resume_skips_completed_jobs(tmp_path, monkeypatch):
 def test_wait_render_job_raises_on_stalled_render(monkeypatch, tmp_path):
     import time as _time
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     old_stamp = _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(_time.time() - 31 * 60))
     stalls = {"count": 0}
 
@@ -150,6 +153,7 @@ def test_wait_render_job_raises_on_stalled_render_with_int_ms_updated_at(monkeyp
     # int-ms form (31 min stale) through _wait_render_job and assert it raises.
     import time as _time
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     old_ms = int(_time.time() * 1000) - 31 * 60 * 1000
 
     def fake_get_render_job(job_id, project_id=""):
@@ -205,6 +209,7 @@ def test_get_auto_pipeline_job_marks_orphaned_running_job_failed(tmp_path, monke
     import json as _json
     import time as _time
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     monkeypatch.setattr(auto_pipeline_jobs, "_ACTIVE_AUTO_IDS", set())
 
     project_id = "auto_orphan"
@@ -247,6 +252,7 @@ def test_get_auto_pipeline_job_marks_orphaned_running_job_failed(tmp_path, monke
 def test_get_auto_pipeline_job_keeps_live_running_job(tmp_path, monkeypatch):
     import time as _time
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     monkeypatch.setattr(auto_pipeline_jobs, "_ACTIVE_AUTO_IDS", {"auto_live_00000001"})
 
     project_id = "auto_live"

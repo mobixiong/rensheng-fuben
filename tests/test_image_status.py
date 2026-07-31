@@ -59,6 +59,7 @@ def test_runtime_fields_can_be_cleaned_without_touching_final_status():
 
 def test_hydrate_clears_legacy_running_state_without_image(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     state = {
         "project_id": "legacy_runtime",
         "story": {
@@ -82,6 +83,7 @@ def test_hydrate_clears_legacy_running_state_without_image(tmp_path, monkeypatch
 
 def test_existing_image_fields_win_over_stale_error_when_hydrated(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     state = {
         "project_id": "existing_image",
         "story": {
@@ -108,6 +110,7 @@ def test_existing_image_fields_win_over_stale_error_when_hydrated(tmp_path, monk
 
 def test_failed_job_terminal_does_not_override_existing_image(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     project_id = "failed_job_with_image"
     jobs_dir = project_service.project_dir(project_id) / "jobs"
     jobs_dir.mkdir(parents=True)
@@ -149,6 +152,7 @@ def test_failed_job_terminal_does_not_override_existing_image(tmp_path, monkeypa
 
 def test_write_project_files_does_not_persist_legacy_runtime_state(tmp_path, monkeypatch):
     monkeypatch.setattr(project_service, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.paths.PROJECTS_DIR", tmp_path)
     project_id = "persist_runtime"
     project_service.write_project_files(
         {
